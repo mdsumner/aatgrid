@@ -2,9 +2,7 @@
 # This script creates actual tile sets that cover specific geographic areas
 # Built with terra package
 
-library(terra)
 
-source("antarctic_grid_system.R")
 
 # ==============================================================================
 # REGION OF INTEREST FUNCTIONS
@@ -16,6 +14,7 @@ source("antarctic_grid_system.R")
 #' @param level Grid level ("L1" or "L2")
 #' @param zones UTM zone definitions
 #' @return SpatVector with all tiles covering the extent
+#' @export
 generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
   
   # Determine which UTM zones intersect this extent
@@ -95,6 +94,7 @@ generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
 #' @param zones UTM zone definitions
 #' @param buffer_m Buffer distance in meters (optional)
 #' @return SpatVector with tiles that intersect the feature
+#' @export
 generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0) {
   
   # Get bbox in lon/lat
@@ -153,6 +153,7 @@ generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0)
 #' Define extents for key AAT regions
 #' 
 #' @return list of extents in terra ordering c(xmin, xmax, ymin, ymax)
+#' @export
 get_aat_regions <- function() {
   list(
     # Heard Island and McDonald Islands
@@ -191,6 +192,7 @@ get_aat_regions <- function() {
 #' @param feature_vect SpatVector to cover
 #' @param zones UTM zone definitions
 #' @return list with L1 and L2 tile sets
+#' @export
 generate_tile_hierarchy <- function(feature_vect, zones) {
   
   # Generate L1 tiles
@@ -268,6 +270,7 @@ if (FALSE) {
 #' 
 #' @param tiles_vect SpatVector with tiles
 #' @return data.frame with tile metadata
+#' @export
 create_tile_catalog <- function(tiles_vect) {
   
   catalog <- values(tiles_vect)
@@ -298,6 +301,7 @@ create_tile_catalog <- function(tiles_vect) {
 #' 
 #' @param tiles_vect SpatVector with tiles
 #' @param filename Output CSV filename
+#' @export
 export_tile_catalog <- function(tiles_vect, filename) {
   catalog <- create_tile_catalog(tiles_vect)
   write.csv(catalog, filename, row.names = FALSE)

@@ -4,7 +4,6 @@
 library(sf)
 library(dplyr)
 
-source("antarctic_grid_system.R")
 
 # ==============================================================================
 # REGION OF INTEREST FUNCTIONS

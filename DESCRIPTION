@@ -1,0 +1,26 @@
+Package: aatgrid
+Type: Package
+Title: Antarctic Territory Grid System
+Version: 0.1.0
+Authors@R: person("Your", "Name", email = "your.email@example.com",
+                  role = c("aut", "cre"))
+Description: A hierarchical geospatial tiling system for the Australian Antarctic 
+    Territory (AAT). Provides standardized grid frameworks at multiple resolutions
+    (36km and 6km tiles) aligned with Sentinel-2 grid origins. Includes fast 
+    raster-based tile identification for efficient spatial indexing.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Depends:
+    R (>= 4.0)
+Imports:
+    terra (>= 1.7-0)
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
+RoxygenNote: 7.2.3
+Roxygen: list(markdown = TRUE)
+VignetteBuilder: knitr
+URL: https://github.com/YOUR-USERNAME/aat-grid-system
+BugReports: https://github.com/YOUR-USERNAME/aat-grid-system/issues

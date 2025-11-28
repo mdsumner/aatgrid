@@ -3,45 +3,18 @@
 # Coverage: Australian Antarctic Territory (44°E to 160°E, terrestrial focus)
 # Built with terra package
 
-library(terra)
+#' @importFrom terra vect ext project crs values rast res
+NULL
+
+# Global grid specification - internal to package
+.onLoad <- function(libname, pkgname) {
+  # Grid specifications are loaded into package environment
+  invisible()
+}
 
 # ==============================================================================
-# GRID SPECIFICATION
+# TILE INDEXING FUNCTIONS
 # ==============================================================================
-
-# Define the grid system parameters
-GRID_SPEC <- list(
-  # Level 1: Coarse grid
-  L1 = list(
-    tile_size = 36000,      # meters (36 km)
-    resolution = 60,        # meters per pixel
-    pixels = 600            # 600 x 600 pixels
-  ),
-  
-  # Level 2: Fine grid  
-  L2 = list(
-    tile_size = 6000,       # meters (6 km)
-    resolution = 10,        # meters per pixel
-    pixels = 600            # 600 x 600 pixels
-  ),
-  
-  # Nesting relationship
-  nesting_factor = 6        # 6x6 L2 tiles per L1 tile
-)
-
-# ==============================================================================
-# UTM ZONE DEFINITIONS
-# ==============================================================================
-
-# Define UTM zones covering Australian Antarctic Territory
-# Zone numbers 42-58 cover roughly 44°E to 160°E
-# All southern hemisphere (S suffix)
-
-# Sentinel-2 uses specific origins for each UTM zone
-# For UTM southern hemisphere: origin is typically at (x=166021, y=0)
-# This offset accounts for the UTM false easting adjustment
-
-define_utm_zones <- function() {
   # Zones covering AAT longitude range (44°E to 160°E)
   zone_numbers <- 42:58  # Conservative range to ensure full coverage
   
@@ -75,6 +48,7 @@ define_utm_zones <- function() {
 #' @param origin_x Grid origin easting (default: Sentinel-2 origin)
 #' @param origin_y Grid origin northing (default: 0)
 #' @return data.frame with col and row indices
+#' @export
 utm_to_tile_index <- function(x, y, level, origin_x = 166021, origin_y = 0) {
   tile_size <- GRID_SPEC[[level]]$tile_size
   
@@ -93,6 +67,7 @@ utm_to_tile_index <- function(x, y, level, origin_x = 166021, origin_y = 0) {
 #' @param origin_x Grid origin easting
 #' @param origin_y Grid origin northing
 #' @return numeric vector c(xmin, xmax, ymin, ymax) - terra ordering
+#' @export
 tile_index_to_extent <- function(col, row, level, origin_x = 166021, origin_y = 0) {
   tile_size <- GRID_SPEC[[level]]$tile_size
   
@@ -111,6 +86,7 @@ tile_index_to_extent <- function(col, row, level, origin_x = 166021, origin_y = 
 #' @param col Tile column index
 #' @param row Tile row index
 #' @return character tile ID (e.g., "55S_L1_0123_0456")
+#' @export
 make_tile_id <- function(zone_id, level, col, row) {
   # Format with leading zeros for readability and sorting
   paste0(zone_id, "_", level, "_", 
@@ -122,6 +98,7 @@ make_tile_id <- function(zone_id, level, col, row) {
 #' 
 #' @param tile_id Tile identifier string
 #' @return list with zone_id, level, col, row
+#' @export
 parse_tile_id <- function(tile_id) {
   parts <- strsplit(tile_id, "_")[[1]]
   list(
@@ -137,6 +114,7 @@ parse_tile_id <- function(tile_id) {
 #' @param l2_col L2 tile column index
 #' @param l2_row L2 tile row index
 #' @return data.frame with parent L1 col and row
+#' @export
 get_parent_tile <- function(l2_col, l2_row) {
   nf <- GRID_SPEC$nesting_factor
   data.frame(
@@ -150,6 +128,7 @@ get_parent_tile <- function(l2_col, l2_row) {
 #' @param l1_col L1 tile column index
 #' @param l1_row L1 tile row index
 #' @return data.frame with all child L2 col and row indices
+#' @export
 get_child_tiles <- function(l1_col, l1_row) {
   nf <- GRID_SPEC$nesting_factor
   
@@ -172,6 +151,7 @@ get_child_tiles <- function(l1_col, l1_row) {
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatVector object with tile polygon
+#' @export
 create_tile_polygon <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
@@ -213,6 +193,7 @@ create_tile_polygon <- function(zone_id, level, col, row, zones) {
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatExtent object
+#' @export
 create_tile_extent <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
@@ -232,6 +213,7 @@ create_tile_extent <- function(zone_id, level, col, row, zones) {
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatRaster template (empty raster with correct extent/resolution)
+#' @export
 create_tile_template <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
@@ -289,6 +271,7 @@ if (FALSE) {
 # ==============================================================================
 
 #' Save grid specification to RDS file
+#' @export
 save_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   zones <- define_utm_zones()
   
@@ -305,6 +288,7 @@ save_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
 }
 
 #' Load grid specification from RDS file
+#' @export
 load_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   if (!file.exists(filename)) {
     stop("Grid specification file not found: ", filename)

@@ -2,9 +2,7 @@
 # Fast tile identification using raster specifications
 # Built with terra package
 
-library(terra)
 
-source("antarctic_grid_system.R")
 
 # ==============================================================================
 # ZONE RASTER SPECIFICATIONS
@@ -20,6 +18,7 @@ source("antarctic_grid_system.R")
 #' @param zones UTM zone definitions
 #' @param zone_extent Optional: limit extent (xmin, xmax, ymin, ymax) in UTM coords
 #' @return SpatRaster where each cell = one tile
+#' @export
 create_zone_raster <- function(zone_id, level, zones, zone_extent = NULL) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
@@ -76,6 +75,7 @@ create_zone_raster <- function(zone_id, level, zones, zone_extent = NULL) {
 #' @param zones UTM zone definitions
 #' @param zone_ids Optional: vector of zone IDs (default: all AAT zones)
 #' @return Named list of SpatRaster objects
+#' @export
 create_all_zone_rasters <- function(level, zones, zone_ids = NULL) {
   if (is.null(zone_ids)) {
     zone_ids <- zones$zone_id
@@ -100,6 +100,7 @@ create_all_zone_rasters <- function(level, zones, zone_ids = NULL) {
 #' @param zone_raster SpatRaster template for the zone (each cell = one tile)
 #' @param buffer_m Optional buffer distance in meters
 #' @return SpatRaster with 1 where tiles intersect features, 0 elsewhere
+#' @export
 identify_intersecting_tiles <- function(features, zone_raster, buffer_m = 0) {
   # Project features to raster CRS if needed
   if (!is.null(crs(features)) && crs(features) != crs(zone_raster)) {
@@ -149,6 +150,7 @@ cells_to_tile_indices <- function(zone_raster, cell_indices) {
 #' @param zone_raster Optional: pre-created zone raster (for efficiency)
 #' @param buffer_m Optional buffer in meters
 #' @return data.frame with tile_id, zone_id, level, col, row
+#' @export
 fast_identify_tiles <- function(features, zone_id, level, zones, 
                                 zone_raster = NULL, buffer_m = 0) {
   
@@ -200,6 +202,7 @@ fast_identify_tiles <- function(features, zone_id, level, zones,
 #' @param zones UTM zone definitions
 #' @param buffer_m Optional buffer in meters
 #' @return data.frame with all intersecting tiles across zones
+#' @export
 fast_identify_tiles_multizone <- function(features, zone_ids, level, zones, 
                                          buffer_m = 0) {
   
@@ -245,6 +248,7 @@ fast_identify_tiles_multizone <- function(features, zone_ids, level, zones,
 #' @param tile_df data.frame from fast_identify_tiles with tile_id, zone_id, col, row
 #' @param zones UTM zone definitions
 #' @return List of SpatRaster templates
+#' @export
 create_tile_templates_from_df <- function(tile_df, zones) {
   
   templates <- lapply(1:nrow(tile_df), function(i) {
@@ -267,6 +271,7 @@ create_tile_templates_from_df <- function(tile_df, zones) {
 #' @param tile_df data.frame from fast_identify_tiles
 #' @param zones UTM zone definitions  
 #' @return data.frame with tile_id and extent columns (xmin, xmax, ymin, ymax)
+#' @export
 get_tile_extents_from_df <- function(tile_df, zones) {
   
   extents <- lapply(1:nrow(tile_df), function(i) {
