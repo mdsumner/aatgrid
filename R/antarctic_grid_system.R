@@ -1,9 +1,9 @@
 # Antarctic Territory Grid System
 # Based on UTM zones with Sentinel-2 grid alignment
 # Coverage: Australian Antarctic Territory (44°E to 160°E, terrestrial focus)
+# Built with terra package
 
-library(sf)
-library(dplyr)
+library(terra)
 
 # ==============================================================================
 # GRID SPECIFICATION
@@ -161,17 +161,17 @@ get_child_tiles <- function(l1_col, l1_row) {
 }
 
 # ==============================================================================
-# SPATIAL FUNCTIONS
+# SPATIAL FUNCTIONS (TERRA-BASED)
 # ==============================================================================
 
-#' Create sf polygon for a tile
+#' Create SpatVector polygon for a tile
 #' 
 #' @param zone_id Zone identifier
 #' @param level Grid level
 #' @param col Tile column
 #' @param row Tile row
 #' @param zones UTM zone definitions
-#' @return sf object with tile polygon
+#' @return SpatVector object with tile polygon
 create_tile_polygon <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
@@ -179,26 +179,74 @@ create_tile_polygon <- function(zone_id, level, col, row, zones) {
                               zone_info$origin_x, 
                               zone_info$origin_y)
   
-  # Create polygon from bbox
-  poly <- st_polygon(list(matrix(c(
+  # Create polygon from bbox using terra
+  # Format: matrix with x, y coordinates of polygon vertices
+  coords <- matrix(c(
     bbox$xmin, bbox$ymin,
     bbox$xmax, bbox$ymin,
     bbox$xmax, bbox$ymax,
     bbox$xmin, bbox$ymax,
     bbox$xmin, bbox$ymin
-  ), ncol = 2, byrow = TRUE)))
+  ), ncol = 2, byrow = TRUE)
   
-  # Convert to sf with CRS
-  tile_sf <- st_sf(
-    tile_id = make_tile_id(zone_id, level, col, row),
+  # Create SpatVector polygon
+  tile_vect <- vect(coords, type = "polygons", crs = zone_info$epsg)
+  
+  # Add attributes
+  tile_id <- make_tile_id(zone_id, level, col, row)
+  values(tile_vect) <- data.frame(
+    tile_id = tile_id,
     zone_id = zone_id,
     level = level,
     col = col,
-    row = row,
-    geometry = st_sfc(poly, crs = zone_info$epsg)
+    row = row
   )
   
-  return(tile_sf)
+  return(tile_vect)
+}
+
+#' Create SpatExtent for a tile
+#' 
+#' @param zone_id Zone identifier
+#' @param level Grid level
+#' @param col Tile column
+#' @param row Tile row
+#' @param zones UTM zone definitions
+#' @return SpatExtent object
+create_tile_extent <- function(zone_id, level, col, row, zones) {
+  zone_info <- zones[zones$zone_id == zone_id, ]
+  
+  bbox <- tile_index_to_bbox(col, row, level,
+                              zone_info$origin_x,
+                              zone_info$origin_y)
+  
+  ext(bbox$xmin, bbox$xmax, bbox$ymin, bbox$ymax)
+}
+
+#' Create template SpatRaster for a tile
+#' 
+#' @param zone_id Zone identifier
+#' @param level Grid level
+#' @param col Tile column
+#' @param row Tile row
+#' @param zones UTM zone definitions
+#' @return SpatRaster template (empty raster with correct extent/resolution)
+create_tile_template <- function(zone_id, level, col, row, zones) {
+  zone_info <- zones[zones$zone_id == zone_id, ]
+  
+  # Get tile extent
+  tile_ext <- create_tile_extent(zone_id, level, col, row, zones)
+  
+  # Create raster template
+  npixels <- GRID_SPEC[[level]]$pixels
+  resolution <- GRID_SPEC[[level]]$resolution
+  
+  r <- rast(tile_ext, nrows = npixels, ncols = npixels, crs = zone_info$epsg)
+  
+  # Add metadata
+  names(r) <- make_tile_id(zone_id, level, col, row)
+  
+  return(r)
 }
 
 # ==============================================================================
@@ -214,9 +262,17 @@ if (FALSE) {
   # Heard Island is approximately at 73°E, 53°S
   # This falls in UTM zone 43S
   
-  # Example tile indices
+  # Example tile polygon
   example_tile <- create_tile_polygon("43S", "L1", 10, -50, zones)
   print(example_tile)
+  
+  # Example tile extent
+  example_ext <- create_tile_extent("43S", "L1", 10, -50, zones)
+  print(example_ext)
+  
+  # Example tile raster template
+  example_rast <- create_tile_template("43S", "L1", 10, -50, zones)
+  print(example_rast)
   
   # Get children of an L1 tile
   children <- get_child_tiles(10, -50)

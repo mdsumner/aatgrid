@@ -1,8 +1,7 @@
 # Antarctic Grid System - Demonstration
-# This script demonstrates the complete workflow
+# This script demonstrates the complete workflow using terra
 
-library(sf)
-library(dplyr)
+library(terra)
 
 source("antarctic_grid_system.R")
 source("generate_tile_grids.R")

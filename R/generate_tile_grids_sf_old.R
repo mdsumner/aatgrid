@@ -1,8 +1,8 @@
 # Generate Tile Grids for Regions of Interest
 # This script creates actual tile sets that cover specific geographic areas
-# Built with terra package
 
-library(terra)
+library(sf)
+library(dplyr)
 
 source("antarctic_grid_system.R")
 
@@ -12,14 +12,14 @@ source("antarctic_grid_system.R")
 
 #' Generate tiles covering a bounding box
 #' 
-#' @param bbox_lonlat Named vector c(xmin, ymin, xmax, ymax) in WGS84 lon/lat
+#' @param bbox_lonlat Vector c(xmin, ymin, xmax, ymax) in WGS84 lon/lat
 #' @param level Grid level ("L1" or "L2")
 #' @param zones UTM zone definitions
-#' @return SpatVector with all tiles covering the region
+#' @return sf object with all tiles covering the region
 generate_tiles_for_bbox <- function(bbox_lonlat, level, zones) {
   
   # Determine which UTM zones intersect this bbox
-  lon_range <- c(bbox_lonlat["xmin"], bbox_lonlat["xmax"])
+  lon_range <- c(bbox_lonlat[1], bbox_lonlat[3])
   
   # Calculate approximate UTM zones
   # UTM zone = floor((lon + 180) / 6) + 1
@@ -35,26 +35,21 @@ generate_tiles_for_bbox <- function(bbox_lonlat, level, zones) {
     zone <- relevant_zones[i, ]
     
     # Convert bbox to this UTM zone
-    bbox_vect <- vect(
-      matrix(c(bbox_lonlat["xmin"], bbox_lonlat["ymin"],
-               bbox_lonlat["xmax"], bbox_lonlat["ymin"],
-               bbox_lonlat["xmax"], bbox_lonlat["ymax"],
-               bbox_lonlat["xmin"], bbox_lonlat["ymax"],
-               bbox_lonlat["xmin"], bbox_lonlat["ymin"]),
-             ncol = 2, byrow = TRUE),
-      type = "polygons",
-      crs = "EPSG:4326"
-    )
-    
-    bbox_utm <- project(bbox_vect, zone$epsg)
-    bbox_ext <- ext(bbox_utm)
+    bbox_sf <- st_bbox(c(xmin = bbox_lonlat[1], 
+                         ymin = bbox_lonlat[2],
+                         xmax = bbox_lonlat[3], 
+                         ymax = bbox_lonlat[4]),
+                       crs = 4326) %>% 
+      st_as_sfc() %>%
+      st_transform(zone$epsg) %>%
+      st_bbox()
     
     # Calculate tile index ranges
     tile_size <- GRID_SPEC[[level]]$tile_size
     
-    min_idx <- utm_to_tile_index(bbox_ext[1], bbox_ext[3], 
+    min_idx <- utm_to_tile_index(bbox_sf["xmin"], bbox_sf["ymin"], 
                                   level, zone$origin_x, zone$origin_y)
-    max_idx <- utm_to_tile_index(bbox_ext[2], bbox_ext[4], 
+    max_idx <- utm_to_tile_index(bbox_sf["xmax"], bbox_sf["ymax"], 
                                   level, zone$origin_x, zone$origin_y)
     
     # Generate all tiles in range
@@ -71,76 +66,60 @@ generate_tiles_for_bbox <- function(bbox_lonlat, level, zones) {
                          zones)
     })
     
-    # Combine tiles for this zone
-    if (length(tiles_list) > 0) {
-      all_tiles[[i]] <- do.call(rbind, tiles_list)
-    }
+    all_tiles[[i]] <- do.call(rbind, tiles_list)
   }
   
   # Combine all zones
-  if (length(all_tiles) > 0) {
-    result <- do.call(rbind, all_tiles)
-  } else {
-    result <- NULL
-  }
+  result <- do.call(rbind, all_tiles)
   
   return(result)
 }
 
 #' Generate tiles that intersect a spatial feature
 #' 
-#' @param feature_vect SpatVector object (polygon or multipolygon) in any CRS
+#' @param feature_sf sf object (polygon or multipolygon) in any CRS
 #' @param level Grid level ("L1" or "L2")
 #' @param zones UTM zone definitions
 #' @param buffer_m Buffer distance in meters (optional)
-#' @return SpatVector with tiles that intersect the feature
-generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0) {
+#' @return sf object with tiles that intersect the feature
+generate_tiles_for_feature <- function(feature_sf, level, zones, buffer_m = 0) {
   
   # Get bbox in lon/lat
-  feature_lonlat <- project(feature_vect, "EPSG:4326")
-  bbox <- ext(feature_lonlat)
+  feature_lonlat <- st_transform(feature_sf, 4326)
+  bbox <- st_bbox(feature_lonlat)
   
   # Generate tiles covering bbox
-  bbox_vec <- c(xmin = bbox[1], ymin = bbox[3], xmax = bbox[2], ymax = bbox[4])
-  candidate_tiles <- generate_tiles_for_bbox(bbox_vec, level, zones)
-  
-  if (is.null(candidate_tiles)) {
-    return(NULL)
-  }
+  candidate_tiles <- generate_tiles_for_bbox(
+    c(bbox["xmin"], bbox["ymin"], bbox["xmax"], bbox["ymax"]),
+    level, zones
+  )
   
   # Filter to only tiles that actually intersect the feature
   # For each unique zone, transform feature and test intersection
-  zones_in_tiles <- unique(values(candidate_tiles)$zone_id)
+  zones_in_tiles <- unique(candidate_tiles$zone_id)
   
   intersecting_tiles <- list()
   
   for (zone_id in zones_in_tiles) {
     zone_info <- zones[zones$zone_id == zone_id, ]
-    zone_tile_idx <- values(candidate_tiles)$zone_id == zone_id
-    zone_tiles <- candidate_tiles[zone_tile_idx, ]
+    zone_tiles <- candidate_tiles[candidate_tiles$zone_id == zone_id, ]
     
     # Transform feature to this zone's CRS
-    feature_utm <- project(feature_vect, zone_info$epsg)
+    feature_utm <- st_transform(feature_sf, zone_info$epsg)
     
     # Apply buffer if specified
     if (buffer_m > 0) {
-      feature_utm <- buffer(feature_utm, buffer_m)
+      feature_utm <- st_buffer(feature_utm, buffer_m)
     }
     
     # Test intersection
-    intersects <- relate(zone_tiles, feature_utm, "intersects")
+    intersects <- st_intersects(zone_tiles, feature_utm, sparse = FALSE)
     
-    if (any(intersects)) {
-      intersecting_tiles[[zone_id]] <- zone_tiles[intersects, ]
-    }
+    intersecting_tiles[[zone_id]] <- zone_tiles[rowSums(intersects) > 0, ]
   }
   
-  # Combine results
-  if (length(intersecting_tiles) > 0) {
-    result <- do.call(rbind, intersecting_tiles)
-  } else {
-    result <- NULL
-  }
+  result <- do.call(rbind, intersecting_tiles)
+  rownames(result) <- NULL
   
   return(result)
 }
@@ -185,26 +164,22 @@ get_aat_regions <- function() {
 
 #' Generate matching L1 and L2 tile sets
 #' 
-#' @param feature_vect SpatVector to cover
+#' @param feature_sf Spatial feature to cover
 #' @param zones UTM zone definitions
 #' @return list with L1 and L2 tile sets
-generate_tile_hierarchy <- function(feature_vect, zones) {
+generate_tile_hierarchy <- function(feature_sf, zones) {
   
   # Generate L1 tiles
-  l1_tiles <- generate_tiles_for_feature(feature_vect, "L1", zones)
-  
-  if (is.null(l1_tiles)) {
-    return(list(L1 = NULL, L2 = NULL))
-  }
+  l1_tiles <- generate_tiles_for_feature(feature_sf, "L1", zones)
   
   # For each L1 tile, generate its child L2 tiles
-  l1_values <- values(l1_tiles)
-  l2_tiles_list <- lapply(1:nrow(l1_values), function(i) {
-    children <- get_child_tiles(l1_values$col[i], l1_values$row[i])
+  l2_tiles_list <- lapply(1:nrow(l1_tiles), function(i) {
+    l1 <- l1_tiles[i, ]
+    children <- get_child_tiles(l1$col, l1$row)
     
     # Create L2 tile polygons
     tiles <- lapply(1:nrow(children), function(j) {
-      create_tile_polygon(l1_values$zone_id[i], "L2", 
+      create_tile_polygon(l1$zone_id, "L2", 
                          children$col[j], 
                          children$row[j], 
                          zones)
@@ -214,9 +189,10 @@ generate_tile_hierarchy <- function(feature_vect, zones) {
   })
   
   l2_tiles <- do.call(rbind, l2_tiles_list)
+  rownames(l2_tiles) <- NULL
   
   # Filter L2 tiles to those that intersect feature
-  l2_tiles <- generate_tiles_for_feature(feature_vect, "L2", zones)
+  l2_tiles <- generate_tiles_for_feature(feature_sf, "L2", zones)
   
   list(
     L1 = l1_tiles,
@@ -238,23 +214,23 @@ if (FALSE) {
   heard_l2 <- generate_tiles_for_bbox(regions$heard_mcdonald, "L2", zones)
   
   print(paste("Heard Island region:"))
-  print(paste("  L1 tiles:", nrow(values(heard_l1))))
-  print(paste("  L2 tiles:", nrow(values(heard_l2))))
+  print(paste("  L1 tiles:", nrow(heard_l1)))
+  print(paste("  L2 tiles:", nrow(heard_l2)))
   
   # Check nesting (should be 36 L2 per L1)
-  print(paste("  Ratio:", nrow(values(heard_l2)) / nrow(values(heard_l1))))
+  print(paste("  Ratio:", nrow(heard_l2) / nrow(heard_l1)))
   
   # Generate tiles for Macquarie Island
   macq_l1 <- generate_tiles_for_bbox(regions$macquarie, "L1", zones)
   macq_l2 <- generate_tiles_for_bbox(regions$macquarie, "L2", zones)
   
   print(paste("Macquarie Island region:"))
-  print(paste("  L1 tiles:", nrow(values(macq_l1))))
-  print(paste("  L2 tiles:", nrow(values(macq_l2))))
+  print(paste("  L1 tiles:", nrow(macq_l1)))
+  print(paste("  L2 tiles:", nrow(macq_l2)))
   
   # Save tile sets
-  writeVector(heard_l1, "heard_island_L1_tiles.gpkg", overwrite = TRUE)
-  writeVector(heard_l2, "heard_island_L2_tiles.gpkg", overwrite = TRUE)
+  st_write(heard_l1, "heard_island_L1_tiles.gpkg", delete_dsn = TRUE)
+  st_write(heard_l2, "heard_island_L2_tiles.gpkg", delete_dsn = TRUE)
 }
 
 # ==============================================================================
@@ -263,22 +239,22 @@ if (FALSE) {
 
 #' Create a tile catalog data frame
 #' 
-#' @param tiles_vect SpatVector with tiles
+#' @param tiles_sf sf object with tiles
 #' @return data.frame with tile metadata
-create_tile_catalog <- function(tiles_vect) {
+create_tile_catalog <- function(tiles_sf) {
   
-  catalog <- values(tiles_vect)
+  catalog <- st_drop_geometry(tiles_sf)
   
   # Add additional metadata
-  level <- catalog$level[1]
-  catalog$tile_size_m <- GRID_SPEC[[level]]$tile_size
-  catalog$resolution_m <- GRID_SPEC[[level]]$resolution
-  catalog$pixels <- GRID_SPEC[[level]]$pixels
+  catalog$tile_size_m <- GRID_SPEC[[tiles_sf$level[1]]]$tile_size
+  catalog$resolution_m <- GRID_SPEC[[tiles_sf$level[1]]]$resolution
+  catalog$pixels <- GRID_SPEC[[tiles_sf$level[1]]]$pixels
   
   # Add bbox coordinates for quick reference
-  bboxes <- do.call(rbind, lapply(1:nrow(catalog), function(i) {
-    bb <- ext(tiles_vect[i, ])
-    data.frame(xmin = bb[1], xmax = bb[2], ymin = bb[3], ymax = bb[4])
+  bboxes <- do.call(rbind, lapply(1:nrow(tiles_sf), function(i) {
+    bb <- st_bbox(tiles_sf[i, ])
+    data.frame(xmin = bb["xmin"], ymin = bb["ymin"],
+               xmax = bb["xmax"], ymax = bb["ymax"])
   }))
   
   catalog <- cbind(catalog, bboxes)
@@ -288,10 +264,10 @@ create_tile_catalog <- function(tiles_vect) {
 
 #' Export tile catalog to CSV
 #' 
-#' @param tiles_vect SpatVector with tiles
+#' @param tiles_sf sf object with tiles
 #' @param filename Output CSV filename
-export_tile_catalog <- function(tiles_vect, filename) {
-  catalog <- create_tile_catalog(tiles_vect)
+export_tile_catalog <- function(tiles_sf, filename) {
+  catalog <- create_tile_catalog(tiles_sf)
   write.csv(catalog, filename, row.names = FALSE)
   message("Tile catalog exported to: ", filename)
 }

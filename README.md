@@ -59,12 +59,12 @@ children <- get_child_tiles(l1_col = 6, l1_row = 114)
 
 **Full functionality (spatial operations):**
 ```r
-install.packages(c("sf", "dplyr"))
+install.packages("terra")
 ```
 
 **System dependencies (Ubuntu/Debian):**
 ```bash
-sudo apt-get install libgdal-dev libudunits2-dev libproj-dev
+sudo apt-get install libgdal-dev libproj-dev
 ```
 
 ### Clone Repository
@@ -93,7 +93,7 @@ tiles_l1 <- generate_tiles_for_bbox(heard_bbox, "L1", zones)
 tiles_l2 <- generate_tiles_for_bbox(heard_bbox, "L2", zones)
 
 # Export
-st_write(tiles_l1, "heard_island_L1.gpkg")
+writeVector(tiles_l1, "heard_island_L1.gpkg", overwrite = TRUE)
 ```
 
 ### Navigate Tile Hierarchy
