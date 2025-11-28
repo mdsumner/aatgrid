@@ -12,9 +12,27 @@ NULL
   invisible()
 }
 
-# ==============================================================================
-# TILE INDEXING FUNCTIONS
-# ==============================================================================
+#' Define UTM zones covering Australian Antarctic Territory
+#' 
+#' Creates a data frame with specifications for UTM zones 42S through 58S,
+#' covering the longitude range of the Australian Antarctic Territory.
+#' Each zone includes grid origin coordinates aligned with Sentinel-2.
+#' 
+#' @return data.frame with columns:
+#'   \itemize{
+#'     \item zone_number: UTM zone number (42-58)
+#'     \item hemisphere: Hemisphere code ("S")
+#'     \item epsg: EPSG code as string (e.g., "EPSG:32743")
+#'     \item origin_x: Grid origin easting (Sentinel-2 standard: 166021)
+#'     \item origin_y: Grid origin northing (0)
+#'     \item central_meridian: Central meridian longitude for the zone
+#'     \item zone_id: Zone identifier (e.g., "43S")
+#'   }
+#' @export
+#' @examples
+#' zones <- define_utm_zones()
+#' print(zones[zones$zone_id == "43S", ])
+define_utm_zones <- function() {
   # Zones covering AAT longitude range (44°E to 160°E)
   zone_numbers <- 42:58  # Conservative range to ensure full coverage
   
