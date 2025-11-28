@@ -85,15 +85,15 @@ utm_to_tile_index <- function(x, y, level, origin_x = 166021, origin_y = 0) {
   data.frame(col = col, row = row)
 }
 
-#' Convert tile indices to UTM bounding box
+#' Convert tile indices to UTM extent
 #' 
 #' @param col Tile column index
 #' @param row Tile row index
 #' @param level Grid level ("L1" or "L2")
 #' @param origin_x Grid origin easting
 #' @param origin_y Grid origin northing
-#' @return data.frame with xmin, ymin, xmax, ymax
-tile_index_to_bbox <- function(col, row, level, origin_x = 166021, origin_y = 0) {
+#' @return numeric vector c(xmin, xmax, ymin, ymax) - terra ordering
+tile_index_to_extent <- function(col, row, level, origin_x = 166021, origin_y = 0) {
   tile_size <- GRID_SPEC[[level]]$tile_size
   
   xmin <- origin_x + (col * tile_size)
@@ -101,7 +101,7 @@ tile_index_to_bbox <- function(col, row, level, origin_x = 166021, origin_y = 0)
   xmax <- xmin + tile_size
   ymax <- ymin + tile_size
   
-  data.frame(xmin = xmin, ymin = ymin, xmax = xmax, ymax = ymax)
+  c(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
 }
 
 #' Generate tile ID string
@@ -175,18 +175,18 @@ get_child_tiles <- function(l1_col, l1_row) {
 create_tile_polygon <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
-  bbox <- tile_index_to_bbox(col, row, level, 
-                              zone_info$origin_x, 
-                              zone_info$origin_y)
+  tile_ext <- tile_index_to_extent(col, row, level, 
+                                    zone_info$origin_x, 
+                                    zone_info$origin_y)
   
-  # Create polygon from bbox using terra
-  # Format: matrix with x, y coordinates of polygon vertices
+  # Create polygon from extent using terra ordering
+  # tile_ext is c(xmin, xmax, ymin, ymax)
   coords <- matrix(c(
-    bbox$xmin, bbox$ymin,
-    bbox$xmax, bbox$ymin,
-    bbox$xmax, bbox$ymax,
-    bbox$xmin, bbox$ymax,
-    bbox$xmin, bbox$ymin
+    tile_ext[1], tile_ext[3],  # xmin, ymin
+    tile_ext[2], tile_ext[3],  # xmax, ymin
+    tile_ext[2], tile_ext[4],  # xmax, ymax
+    tile_ext[1], tile_ext[4],  # xmin, ymax
+    tile_ext[1], tile_ext[3]   # xmin, ymin (close)
   ), ncol = 2, byrow = TRUE)
   
   # Create SpatVector polygon
@@ -216,11 +216,12 @@ create_tile_polygon <- function(zone_id, level, col, row, zones) {
 create_tile_extent <- function(zone_id, level, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
   
-  bbox <- tile_index_to_bbox(col, row, level,
-                              zone_info$origin_x,
-                              zone_info$origin_y)
+  tile_ext <- tile_index_to_extent(col, row, level,
+                                    zone_info$origin_x,
+                                    zone_info$origin_y)
   
-  ext(bbox$xmin, bbox$xmax, bbox$ymin, bbox$ymax)
+  # terra ext() takes xmin, xmax, ymin, ymax
+  ext(tile_ext[1], tile_ext[2], tile_ext[3], tile_ext[4])
 }
 
 #' Create template SpatRaster for a tile

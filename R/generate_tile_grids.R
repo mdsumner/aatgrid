@@ -10,16 +10,16 @@ source("antarctic_grid_system.R")
 # REGION OF INTEREST FUNCTIONS
 # ==============================================================================
 
-#' Generate tiles covering a bounding box
+#' Generate tiles covering an extent
 #' 
-#' @param bbox_lonlat Named vector c(xmin, ymin, xmax, ymax) in WGS84 lon/lat
+#' @param extent_lonlat Numeric vector c(xmin, xmax, ymin, ymax) in WGS84 lon/lat (terra ordering)
 #' @param level Grid level ("L1" or "L2")
 #' @param zones UTM zone definitions
-#' @return SpatVector with all tiles covering the region
-generate_tiles_for_bbox <- function(bbox_lonlat, level, zones) {
+#' @return SpatVector with all tiles covering the extent
+generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
   
-  # Determine which UTM zones intersect this bbox
-  lon_range <- c(bbox_lonlat["xmin"], bbox_lonlat["xmax"])
+  # Determine which UTM zones intersect this extent
+  lon_range <- c(extent_lonlat[1], extent_lonlat[2])
   
   # Calculate approximate UTM zones
   # UTM zone = floor((lon + 180) / 6) + 1
@@ -34,27 +34,28 @@ generate_tiles_for_bbox <- function(bbox_lonlat, level, zones) {
   for (i in 1:nrow(relevant_zones)) {
     zone <- relevant_zones[i, ]
     
-    # Convert bbox to this UTM zone
-    bbox_vect <- vect(
-      matrix(c(bbox_lonlat["xmin"], bbox_lonlat["ymin"],
-               bbox_lonlat["xmax"], bbox_lonlat["ymin"],
-               bbox_lonlat["xmax"], bbox_lonlat["ymax"],
-               bbox_lonlat["xmin"], bbox_lonlat["ymax"],
-               bbox_lonlat["xmin"], bbox_lonlat["ymin"]),
+    # Convert extent to this UTM zone
+    extent_vect <- vect(
+      matrix(c(extent_lonlat[1], extent_lonlat[3],
+               extent_lonlat[2], extent_lonlat[3],
+               extent_lonlat[2], extent_lonlat[4],
+               extent_lonlat[1], extent_lonlat[4],
+               extent_lonlat[1], extent_lonlat[3]),
              ncol = 2, byrow = TRUE),
       type = "polygons",
       crs = "EPSG:4326"
     )
     
-    bbox_utm <- project(bbox_vect, zone$epsg)
-    bbox_ext <- ext(bbox_utm)
+    extent_utm <- project(extent_vect, zone$epsg)
+    extent_utm_ext <- ext(extent_utm)
     
     # Calculate tile index ranges
     tile_size <- GRID_SPEC[[level]]$tile_size
     
-    min_idx <- utm_to_tile_index(bbox_ext[1], bbox_ext[3], 
+    # extent is c(xmin, xmax, ymin, ymax)
+    min_idx <- utm_to_tile_index(extent_utm_ext[1], extent_utm_ext[3], 
                                   level, zone$origin_x, zone$origin_y)
-    max_idx <- utm_to_tile_index(bbox_ext[2], bbox_ext[4], 
+    max_idx <- utm_to_tile_index(extent_utm_ext[2], extent_utm_ext[4], 
                                   level, zone$origin_x, zone$origin_y)
     
     # Generate all tiles in range
@@ -149,32 +150,34 @@ generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0)
 # PREDEFINED REGIONS
 # ==============================================================================
 
-#' Define bounding boxes for key AAT regions
+#' Define extents for key AAT regions
+#' 
+#' @return list of extents in terra ordering c(xmin, xmax, ymin, ymax)
 get_aat_regions <- function() {
   list(
     # Heard Island and McDonald Islands
     heard_mcdonald = c(
-      xmin = 72.5, ymin = -53.5,
-      xmax = 74.0, ymax = -52.5
+      xmin = 72.5, xmax = 74.0,
+      ymin = -53.5, ymax = -52.5
     ),
     
     # Macquarie Island
     macquarie = c(
-      xmin = 158.5, ymin = -54.8,
-      xmax = 159.2, ymax = -54.4
+      xmin = 158.5, xmax = 159.2,
+      ymin = -54.8, ymax = -54.4
     ),
     
     # Main Antarctic continent (AAT sector)
     # 44°E to 160°E, focusing on 70°S to 60°S for UTM applicability
     aat_mainland = c(
-      xmin = 44, ymin = -70,
-      xmax = 160, ymax = -60
+      xmin = 44, xmax = 160,
+      ymin = -70, ymax = -60
     ),
     
     # Extended region (includes all of concern up to 50°S)
     aat_extended = c(
-      xmin = 44, ymin = -70,
-      xmax = 160, ymax = -50
+      xmin = 44, xmax = 160,
+      ymin = -70, ymax = -50
     )
   )
 }
@@ -234,8 +237,8 @@ if (FALSE) {
   regions <- get_aat_regions()
   
   # Generate tiles for Heard Island region
-  heard_l1 <- generate_tiles_for_bbox(regions$heard_mcdonald, "L1", zones)
-  heard_l2 <- generate_tiles_for_bbox(regions$heard_mcdonald, "L2", zones)
+  heard_l1 <- generate_tiles_for_extent(regions$heard_mcdonald, "L1", zones)
+  heard_l2 <- generate_tiles_for_extent(regions$heard_mcdonald, "L2", zones)
   
   print(paste("Heard Island region:"))
   print(paste("  L1 tiles:", nrow(values(heard_l1))))
@@ -245,8 +248,8 @@ if (FALSE) {
   print(paste("  Ratio:", nrow(values(heard_l2)) / nrow(values(heard_l1))))
   
   # Generate tiles for Macquarie Island
-  macq_l1 <- generate_tiles_for_bbox(regions$macquarie, "L1", zones)
-  macq_l2 <- generate_tiles_for_bbox(regions$macquarie, "L2", zones)
+  macq_l1 <- generate_tiles_for_extent(regions$macquarie, "L1", zones)
+  macq_l2 <- generate_tiles_for_extent(regions$macquarie, "L2", zones)
   
   print(paste("Macquarie Island region:"))
   print(paste("  L1 tiles:", nrow(values(macq_l1))))
@@ -275,13 +278,18 @@ create_tile_catalog <- function(tiles_vect) {
   catalog$resolution_m <- GRID_SPEC[[level]]$resolution
   catalog$pixels <- GRID_SPEC[[level]]$pixels
   
-  # Add bbox coordinates for quick reference
-  bboxes <- do.call(rbind, lapply(1:nrow(catalog), function(i) {
-    bb <- ext(tiles_vect[i, ])
-    data.frame(xmin = bb[1], xmax = bb[2], ymin = bb[3], ymax = bb[4])
+  # Add extent coordinates (terra ordering: xmin, xmax, ymin, ymax)
+  extents <- do.call(rbind, lapply(1:nrow(catalog), function(i) {
+    tile_ext <- ext(tiles_vect[i, ])
+    data.frame(
+      xmin = tile_ext[1], 
+      xmax = tile_ext[2], 
+      ymin = tile_ext[3], 
+      ymax = tile_ext[4]
+    )
   }))
   
-  catalog <- cbind(catalog, bboxes)
+  catalog <- cbind(catalog, extents)
   
   return(catalog)
 }
