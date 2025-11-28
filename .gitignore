@@ -1,0 +1,47 @@
+# R
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+
+# R output files
+*.rds
+*.RDS
+
+# Geospatial data files (large)
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.geojson
+*.tif
+*.tiff
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# Output directories (optional - uncomment if you want to track outputs)
+# outputs/
+# data/
+
+# Temporary files
+*.tmp
+*.bak
