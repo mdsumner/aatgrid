@@ -34,7 +34,7 @@ NULL
 #' print(zones[zones$zone_id == "43S", ])
 define_utm_zones <- function() {
   # Zones covering AAT longitude range (44°E to 160°E)
-  zone_numbers <- 39:58  # Conservative range to ensure full coverage
+  zone_numbers <- 39:60  # Conservative range to ensure full coverage
 
   zones <- data.frame(
     zone_number = zone_numbers,
@@ -68,12 +68,12 @@ define_utm_zones <- function() {
 #' @param origin_y Grid origin northing (default: 0)
 #' @return data.frame with col and row indices
 #' @export
-utm_to_tile_index <- function(x, y, level, origin_x = 166021, origin_y = 0) {
+utm_to_tile_index <- function(x, y, level) {
   tile_size <- GRID_SPEC[[level]]$tile_size
-
+  zones <- define_utm_zones()
   # Calculate tile indices (floor division from origin)
-  col <- floor((x - origin_x) / tile_size)
-  row <- floor((y - origin_y) / tile_size)
+  col <- floor((x - zones$origin_x[1L]) / tile_size)
+  row <- floor((y - zones$origin_y[1L]) / tile_size)
 
   data.frame(col = col, row = row)
 }
@@ -95,7 +95,7 @@ tile_index_to_extent <- function(col, row, level, origin_x = 166021, origin_y = 
   xmax <- xmin + tile_size
   ymax <- ymin + tile_size
 
-  c(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
+  cbind(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
 }
 
 #' Generate tile ID string

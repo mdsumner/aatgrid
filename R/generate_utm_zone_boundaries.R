@@ -6,10 +6,14 @@ library(terra)
 #' @param lat_range Vector c(min_lat, max_lat) in degrees (default: c(-85, -40))
 #' @param n_points Number of points along each line (default: 100)
 #' @return SpatVector of lines in EPSG:4326
-generate_utm_zone_boundaries <- function(zone_numbers = 42:58,
+generate_utm_zone_boundaries <- function(zone_numbers,
                                          lat_range = c(-85, -40),
                                          n_points = 100) {
 
+  if (missing(zone_numbers)) {
+    zone_numbers <- define_utm_zones()$zone_number
+
+  }
   # Calculate longitude boundaries for each zone
   # UTM zone boundaries are at -180 + (zone_number - 1) * 6
   longitudes <- -180 + (zone_numbers - 1) * 6
