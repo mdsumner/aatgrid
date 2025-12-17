@@ -81,19 +81,67 @@ cd aat-grid-system
 ```r
 source("R/antarctic_grid_system.R")
 source("R/generate_tile_grids.R")
-
+library(terra)
 # Initialize
 zones <- define_utm_zones()
 
-# Define region (Heard Island)
-heard_bbox <- c(xmin = 72.5, ymin = -53.5, xmax = 74.0, ymax = -52.5)
+
+# Define region (Heard Island, incl Meyer Rock and Sail Rock)
+heard_bbox <- c(xmin = 72.56, xmax = 73.9, ymin = -53.2,  ymax = -52.95)
 
 # Generate tiles
-tiles_l1 <- generate_tiles_for_bbox(heard_bbox, "L1", zones)
-tiles_l2 <- generate_tiles_for_bbox(heard_bbox, "L2", zones)
+hl1 <- generate_tiles_for_extent(heard_bbox, "L1", zones)
+hl2 <- generate_tiles_for_extent(heard_bbox, "L2", zones)
 
-# Export
-writeVector(tiles_l1, "heard_island_L1.gpkg", overwrite = TRUE)
+
+
+
+macq_bbox <- c(xmin = 158.75, xmax = 159.00, ymin = -54.81,  ymax = -54.43)
+
+# Generate tiles
+ml1 <- generate_tiles_for_extent(macq_bbox, "L1", zones)
+ml2 <- generate_tiles_for_extent(macq_bbox, "L2", zones)
+
+
+myic_bbox <- c(110.69385, 123.54714, -75.04052, -66.285867 )
+my_l1 <- generate_tiles_for_extent(myic_bbox, "L1", zones)
+#my_l2 <- generate_tiles_for_extent(myic_bbox, "L2", zones)
+
+get_zone <- function(x) {
+a <- gdalraster::srs_get_utm_zone(crs(x))
+if (a < 0) {
+  a <- sprintf("%iS", abs(a))
+  } else {
+   a <- sprintf("%iS", a)
+  }
+  a
+}
+kbbox <- c(62.56,  64.14, -66.59, -65.96)
+k_l1 <- generate_tiles_for_extent(kbbox, "L1", zones)
+k_l2 <- generate_tiles_for_extent(kbbox, "L2", zones)
+
+par(mfcol = c(2, 2))
+plot(hl1); plot(hl2, add = T, lty = 2)
+plot(get_map(hl1, crs(hl1)), add = TRUE)
+vaster::plot_extent(reproj::reproj_extent(heard_bbox, crs(hl1), source = "EPSG:4326"), add = T, border = "firebrick")
+title(sprintf("UTM zone %s\nHeard Island, McDonald Island", get_zone(hl1)))
+
+plot(ml1); plot(ml2, add = T, lty = 2)
+plot(get_map(ml1, crs(ml1)), add = TRUE)
+vaster::plot_extent(reproj::reproj_extent(macq_bbox, crs(ml1), source = "EPSG:4326"), add = T, border = "firebrick")
+title(sprintf("UTM zone %s\nMacquarie Island", get_zone(ml1)))
+
+plot(my_l1)
+plot(get_map(my_l1, crs(my_l1)), add = TRUE)
+lines(reproj::reproj_xy(myic_traverse(), crs(my_l1)), add = TRUE)
+vaster::plot_extent(reproj::reproj_extent(myic_bbox, crs(my_l1), source = "EPSG:4326"), add = T, border = "firebrick")
+title(sprintf("UTM zone %s\nMYIC traverse (L1 only)", get_zone(my_l1)))
+
+plot(k_l1); plot(k_l2, add = T, lty = 2)
+plot(get_map(k_l1, crs(k_l1)), add = TRUE, col = "grey")
+vaster::plot_extent(reproj::reproj_extent(kbbox, crs(k_l1), source = "EPSG:4326"), add = T, border = "firebrick")
+title(sprintf("UTM zone %s\nKrill Box", get_zone(k_l1)))
+
 ```
 
 ### Navigate Tile Hierarchy

@@ -27,18 +27,18 @@
 GRID_SPEC <- list(
   # Level 1: Coarse grid
   L1 = list(
-    tile_size = 36000,      # meters (36 km)
+    tile_size = 48000,      # meters (36 km)
     resolution = 60,        # meters per pixel
     pixels = 600            # 600 x 600 pixels
   ),
-  
-  # Level 2: Fine grid  
+
+  # Level 2: Fine grid
   L2 = list(
     tile_size = 6000,       # meters (6 km)
     resolution = 10,        # meters per pixel
     pixels = 600            # 600 x 600 pixels
   ),
-  
+
   # Nesting relationship
-  nesting_factor = 6        # 6x6 L2 tiles per L1 tile
+  nesting_factor = 8        # 6x6 L2 tiles per L1 tile
 )
