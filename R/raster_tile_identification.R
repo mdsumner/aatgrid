@@ -8,21 +8,21 @@
 # ZONE RASTER SPECIFICATIONS
 # ==============================================================================
 
-#' Create raster specification for a UTM zone at a given level
+#' Create raster specification for a UTM zone at a given resolution
 #'
 #' Each cell in the raster represents one tile in the grid.
 #' This provides a fast spatial index for tile identification.
 #'
 #' @param zone_id Zone identifier (e.g., "43S")
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @param zone_extent Optional: limit extent (xmin, xmax, ymin, ymax) in UTM coords
 #' @return SpatRaster where each cell = one tile
 #' @export
-create_zone_raster <- function(zone_id, level, zones, zone_extent = NULL) {
+create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
   zone_info <- zones[zones$zone_id == zone_id, ]
 
-  tile_size <- GRID_SPEC[[level]]$tile_size
+  ts <- tile_size(res)
 
   # Define extent for the zone if not specified
   if (is.null(zone_extent)) {
@@ -39,29 +39,29 @@ create_zone_raster <- function(zone_id, level, zones, zone_extent = NULL) {
   # Align extent to tile boundaries
   # Snap to tile grid using origin
   xmin_snap <- zone_info$origin_x +
-    floor((zone_extent[1] - zone_info$origin_x) / tile_size) * tile_size
+    floor((zone_extent[1] - zone_info$origin_x) / ts) * ts
   xmax_snap <- zone_info$origin_x +
-    ceiling((zone_extent[2] - zone_info$origin_x) / tile_size) * tile_size
+    ceiling((zone_extent[2] - zone_info$origin_x) / ts) * ts
   ymin_snap <- zone_info$origin_y +
-    floor((zone_extent[3] - zone_info$origin_y) / tile_size) * tile_size
+    floor((zone_extent[3] - zone_info$origin_y) / ts) * ts
   ymax_snap <- zone_info$origin_y +
-    ceiling((zone_extent[4] - zone_info$origin_y) / tile_size) * tile_size
+    ceiling((zone_extent[4] - zone_info$origin_y) / ts) * ts
 
   # Create extent (terra ordering: xmin, xmax, ymin, ymax)
   zone_ext <- ext(xmin_snap, xmax_snap, ymin_snap, ymax_snap)
 
   # Calculate dimensions (each cell = one tile)
-  ncols <- round((xmax_snap - xmin_snap) / tile_size)
-  nrows <- round((ymax_snap - ymin_snap) / tile_size)
+  ncols <- round((xmax_snap - xmin_snap) / ts)
+  nrows <- round((ymax_snap - ymin_snap) / ts)
 
   # Create raster
   r <- rast(zone_ext, nrows = nrows, ncols = ncols, crs = zone_info$epsg)
 
   # Set resolution explicitly to ensure exact tile size
-  res(r) <- c(tile_size, tile_size)
+  res(r) <- c(ts, ts)
 
   # Add metadata
-  names(r) <- paste0(zone_id, "_", level, "_grid")
+  names(r) <- paste0(zone_id, "_", res, "_grid")
 
   # Initialize with NA (no tiles identified yet)
   values(r) <- NA
@@ -69,20 +69,20 @@ create_zone_raster <- function(zone_id, level, zones, zone_extent = NULL) {
   return(r)
 }
 
-#' Create raster specifications for all zones at a level
+#' Create raster specifications for all zones at a resolution
 #'
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @param zone_ids Optional: vector of zone IDs (default: all AAT zones)
 #' @return Named list of SpatRaster objects
 #' @export
-create_all_zone_rasters <- function(level, zones, zone_ids = NULL) {
+create_all_zone_rasters <- function(res, zones, zone_ids = NULL) {
   if (is.null(zone_ids)) {
     zone_ids <- zones$zone_id
   }
 
   raster_list <- lapply(zone_ids, function(zid) {
-    create_zone_raster(zid, level, zones)
+    create_zone_raster(zid, res, zones)
   })
 
   names(raster_list) <- zone_ids
@@ -145,18 +145,18 @@ cells_to_tile_indices <- function(zone_raster, cell_indices) {
 #'
 #' @param features SpatVector of features (polygons, lines, points)
 #' @param zone_id Zone identifier
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @param zone_raster Optional: pre-created zone raster (for efficiency)
 #' @param buffer_m Optional buffer in meters
-#' @return data.frame with tile_id, zone_id, level, col, row
+#' @return data.frame with tile_id, zone_id, res, col, row
 #' @export
-fast_identify_tiles <- function(features, zone_id, level, zones,
+fast_identify_tiles <- function(features, zone_id, res, zones,
                                 zone_raster = NULL, buffer_m = 0) {
 
   # Create zone raster if not provided
   if (is.null(zone_raster)) {
-    zone_raster <- create_zone_raster(zone_id, level, zones)
+    zone_raster <- create_zone_raster(zone_id, res, zones)
   }
 
   # Identify intersecting cells
@@ -169,7 +169,7 @@ fast_identify_tiles <- function(features, zone_id, level, zones,
     return(data.frame(
       tile_id = character(0),
       zone_id = character(0),
-      level = character(0),
+      res = character(0),
       col = integer(0),
       row = integer(0)
     ))
@@ -179,13 +179,13 @@ fast_identify_tiles <- function(features, zone_id, level, zones,
   tile_indices <- cells_to_tile_indices(zone_raster, cell_idx)
 
   # Create tile IDs
-  tile_ids <- make_tile_id(zone_id, level, tile_indices$col, tile_indices$row)
+  tile_ids <- make_tile_id(zone_id, res, tile_indices$col, tile_indices$row)
 
   # Return as data frame
   result <- data.frame(
     tile_id = tile_ids,
     zone_id = zone_id,
-    level = level,
+    res = res,
     col = tile_indices$col,
     row = tile_indices$row,
     stringsAsFactors = FALSE
@@ -198,12 +198,12 @@ fast_identify_tiles <- function(features, zone_id, level, zones,
 #'
 #' @param features SpatVector of features in any CRS
 #' @param zone_ids Vector of zone IDs to check
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @param buffer_m Optional buffer in meters
 #' @return data.frame with all intersecting tiles across zones
 #' @export
-fast_identify_tiles_multizone <- function(features, zone_ids, level, zones,
+fast_identify_tiles_multizone <- function(features, zone_ids, res, zones,
                                          buffer_m = 0) {
 
   # Get feature extent in lon/lat
@@ -224,7 +224,7 @@ fast_identify_tiles_multizone <- function(features, zone_ids, level, zones,
     return(data.frame(
       tile_id = character(0),
       zone_id = character(0),
-      level = character(0),
+      res = character(0),
       col = integer(0),
       row = integer(0)
     ))
@@ -232,7 +232,7 @@ fast_identify_tiles_multizone <- function(features, zone_ids, level, zones,
 
   # Process each zone
   tiles_list <- lapply(relevant_zone_ids, function(zid) {
-    fast_identify_tiles(features, zid, level, zones, buffer_m = buffer_m)
+    fast_identify_tiles(features, zid, res, zones, buffer_m = buffer_m)
   })
 
   # Combine results
@@ -254,7 +254,7 @@ create_tile_templates_from_df <- function(tile_df, zones) {
   templates <- lapply(1:nrow(tile_df), function(i) {
     create_tile_template(
       tile_df$zone_id[i],
-      tile_df$level[i],
+      tile_df$res[i],
       tile_df$col[i],
       tile_df$row[i],
       zones
@@ -279,9 +279,7 @@ get_tile_extents_from_df <- function(tile_df, zones) {
     tile_ext <- tile_index_to_extent(
       tile_df$col[i],
       tile_df$row[i],
-      tile_df$level[i],
-      zone_info$origin_x,
-      zone_info$origin_y
+      tile_df$res[i]
     )
 
     data.frame(
@@ -345,7 +343,7 @@ if (FALSE) {
   # tiles_all <- fast_identify_tiles_multizone(
   #   features,
   #   zone_ids = c("42S", "43S", "44S"),
-  #   level = "L2",
+  #   res = "L2",
   #   zones = zones
   # )
 }

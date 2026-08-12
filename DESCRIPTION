@@ -19,8 +19,9 @@ Suggests:
     testthat (>= 3.0.0),
     knitr,
     rmarkdown
-RoxygenNote: 7.2.3
 Roxygen: list(markdown = TRUE)
 VignetteBuilder: knitr
 URL: https://github.com/YOUR-USERNAME/aat-grid-system
 BugReports: https://github.com/YOUR-USERNAME/aat-grid-system/issues
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0

@@ -1,44 +1,40 @@
 # Package data and constants
 
-#' Grid Specification Parameters
+#' Grid specification constants
 #'
-#' Defines the two-level hierarchical grid system used for the Antarctic
-#' Territory Grid System.
+#' The AAT grid is fully specified by three numbers: an origin, a fixed
+#' pixel count per tile, and a resolution. Tile size is *derived* from
+#' these (`tile_size(res) = PIXELS_PER_TILE * res`) rather than chosen
+#' independently, so the 600x600-pixel Sentinel-2-aligned tile is the
+#' generative invariant of the whole scheme.
 #'
-#' @format A list with two levels:
+#' Named levels ("L1", "L2") are just historical instances of this at
+#' 60 m and 10 m resolution respectively. They are kept only as
+#' convenience aliases accepted wherever a resolution is expected (see
+#' [tile_size()]) and as a parse-time alias in [parse_tile_id()]; new
+#' resolutions do not need a name.
+#'
+#' @format
 #' \describe{
-#'   \item{L1}{Coarse grid specifications:
-#'     \itemize{
-#'       \item tile_size: 36000 meters (36 km)
-#'       \item resolution: 60 meters per pixel
-#'       \item pixels: 600 x 600 pixels per tile
-#'     }
-#'   }
-#'   \item{L2}{Fine grid specifications:
-#'     \itemize{
-#'       \item tile_size: 6000 meters (6 km)
-#'       \item resolution: 10 meters per pixel
-#'       \item pixels: 600 x 600 pixels per tile
-#'     }
-#'   }
-#'   \item{nesting_factor}{6 - each L1 tile contains 6x6 L2 tiles}
+#'   \item{GRID_ORIGIN}{c(x = 140000, y = 20000): grid origin in UTM
+#'     metres, shared by every UTM zone and aligned to the Sentinel-2
+#'     tiling grid}
+#'   \item{PIXELS_PER_TILE}{600: pixel count per tile edge, fixed across
+#'     every resolution}
+#'   \item{LEVEL_RESOLUTIONS}{c(L1 = 60, L2 = 10): resolution (metres)
+#'     named by legacy level, used only to resolve/parse level aliases}
 #' }
+#' @name GRID_SPEC
+NULL
+
+#' @rdname GRID_SPEC
 #' @export
-GRID_SPEC <- list(
-  # Level 1: Coarse grid
-  L1 = list(
-    tile_size = 48000,      # meters (36 km)
-    resolution = 60,        # meters per pixel
-    pixels = 600            # 600 x 600 pixels
-  ),
+GRID_ORIGIN <- c(x = 140000, y = 20000)
 
-  # Level 2: Fine grid
-  L2 = list(
-    tile_size = 6000,       # meters (6 km)
-    resolution = 10,        # meters per pixel
-    pixels = 600            # 600 x 600 pixels
-  ),
+#' @rdname GRID_SPEC
+#' @export
+PIXELS_PER_TILE <- 600
 
-  # Nesting relationship
-  nesting_factor = 8        # 6x6 L2 tiles per L1 tile
-)
+#' @rdname GRID_SPEC
+#' @export
+LEVEL_RESOLUTIONS <- c(L1 = 60, L2 = 10)

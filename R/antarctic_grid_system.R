@@ -3,13 +3,67 @@
 # Coverage: Australian Antarctic Territory (44°E to 160°E, terrestrial focus)
 # Built with terra package
 
-#' @importFrom terra vect ext project crs values rast res
+#' @importFrom terra vect ext project crs values rast res crds
 NULL
 
 # Global grid specification - internal to package
 .onLoad <- function(libname, pkgname) {
   # Grid specifications are loaded into package environment
   invisible()
+}
+
+# ==============================================================================
+# RESOLUTION HELPERS
+# ==============================================================================
+
+#' Resolve a resolution argument, accepting legacy level names
+#'
+#' @param res Numeric resolution in metres, or one of the legacy level
+#'   names in [LEVEL_RESOLUTIONS] (currently "L1", "L2")
+#' @return Numeric resolution in metres
+#' @keywords internal
+resolve_res <- function(res) {
+  if (is.character(res)) {
+    unknown <- setdiff(res, names(LEVEL_RESOLUTIONS))
+    if (length(unknown) > 0) {
+      stop("unknown resolution/level: ", paste(unknown, collapse = ", "))
+    }
+    res <- unname(LEVEL_RESOLUTIONS[res])
+  }
+  res
+}
+
+#' Tile size (metres) for a given resolution
+#'
+#' The generative invariant of the grid: every tile is
+#' `PIXELS_PER_TILE` pixels square, so tile size is derived from
+#' resolution rather than chosen independently.
+#'
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
+#' @return Numeric tile size in metres
+#' @export
+tile_size <- function(res) {
+  PIXELS_PER_TILE * resolve_res(res)
+}
+
+#' Check that arguments have mutually recyclable lengths
+#'
+#' Scalars (length 1) recycle freely; two or more non-scalar arguments
+#' must share the same length, otherwise silent, wrong recycling would
+#' occur (this was a real bug: `make_tile_id("43S", "L1", 5:7, 113:114)`
+#' silently dropped a tile).
+#'
+#' @param ... Vectors to check
+#' @keywords internal
+check_recyclable_lengths <- function(...) {
+  lens <- vapply(list(...), length, integer(1))
+  nontrivial <- unique(lens[lens != 1])
+  if (length(nontrivial) > 1) {
+    stop("arguments imply differing, non-recyclable lengths: ",
+         paste(lens, collapse = ", "))
+  }
+  invisible(TRUE)
 }
 
 #' Define UTM zones covering Australian Antarctic Territory
@@ -40,10 +94,10 @@ define_utm_zones <- function() {
     zone_number = zone_numbers,
     hemisphere = "S",
     epsg = paste0("EPSG:327", zone_numbers),
-    # Sentinel-2 grid origin (standard for UTM southern hemisphere)
-    #origin_x = 166021,
-    origin_x = 140000,
-    origin_y = 20000,
+    # Sentinel-2 grid origin (standard for UTM southern hemisphere);
+    # identical across every zone (see GRID_ORIGIN)
+    origin_x = GRID_ORIGIN[["x"]],
+    origin_y = GRID_ORIGIN[["y"]],
     # Central meridian for each zone
     central_meridian = -183 + (zone_numbers * 6),
     stringsAsFactors = FALSE
@@ -63,100 +117,133 @@ define_utm_zones <- function() {
 #'
 #' @param x UTM easting coordinate(s)
 #' @param y UTM northing coordinate(s)
-#' @param level Grid level ("L1" or "L2")
-#' @param origin_x Grid origin easting (default: Sentinel-2 origin)
-#' @param origin_y Grid origin northing (default: 0)
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2"); the grid origin is shared by every UTM zone (see
+#'   [GRID_ORIGIN])
 #' @return data.frame with col and row indices
 #' @export
-utm_to_tile_index <- function(x, y, level) {
-  tile_size <- GRID_SPEC[[level]]$tile_size
-  zones <- define_utm_zones()
-  # Calculate tile indices (floor division from origin)
-  col <- floor((x - zones$origin_x[1L]) / tile_size)
-  row <- floor((y - zones$origin_y[1L]) / tile_size)
-
-  data.frame(col = col, row = row)
+utm_to_tile_index <- function(x, y, res) {
+  ts <- tile_size(res)
+  data.frame(
+    col = floor((x - GRID_ORIGIN[["x"]]) / ts),
+    row = floor((y - GRID_ORIGIN[["y"]]) / ts)
+  )
 }
 
 #' Convert tile indices to UTM extent
 #'
 #' @param col Tile column index
 #' @param row Tile row index
-#' @param level Grid level ("L1" or "L2")
-#' @param origin_x Grid origin easting
-#' @param origin_y Grid origin northing
-#' @return numeric vector c(xmin, xmax, ymin, ymax) - terra ordering
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
+#' @return data.frame with xmin, xmax, ymin, ymax (UTM metres)
 #' @export
-tile_index_to_extent <- function(col, row, level, origin_x = 166021, origin_y = 0) {
-  tile_size <- GRID_SPEC[[level]]$tile_size
+tile_index_to_extent <- function(col, row, res) {
+  ts <- tile_size(res)
+  xmin <- GRID_ORIGIN[["x"]] + (col * ts)
+  ymin <- GRID_ORIGIN[["y"]] + (row * ts)
 
-  xmin <- origin_x + (col * tile_size)
-  ymin <- origin_y + (row * tile_size)
-  xmax <- xmin + tile_size
-  ymax <- ymin + tile_size
-
-  cbind(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax)
+  data.frame(xmin = xmin, xmax = xmin + ts, ymin = ymin, ymax = ymin + ts)
 }
 
 #' Generate tile ID string
 #'
+#' Encodes resolution rather than a level name, so it is parseable
+#' without a registry: `"55S_R0060_0123_0456"` is a 60 m tile.
+#'
 #' @param zone_id Zone identifier (e.g., "55S")
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
 #' @param col Tile column index
 #' @param row Tile row index
-#' @return character tile ID (e.g., "55S_L1_0123_0456")
+#' @return character tile ID (e.g., "55S_R0060_0123_0456")
 #' @export
-make_tile_id <- function(zone_id, level, col, row) {
-  # Format with leading zeros for readability and sorting
-  paste0(zone_id, "_", level, "_",
+make_tile_id <- function(zone_id, res, col, row) {
+  check_recyclable_lengths(zone_id, col, row)
+  res <- resolve_res(res)
+  paste0(zone_id, "_R", sprintf("%04d", res), "_",
          sprintf("%04d", col), "_",
          sprintf("%04d", row))
 }
 
 #' Parse tile ID string
 #'
+#' Accepts both the current resolution-encoded form
+#' (`"55S_R0060_0123_0456"`) and legacy level-named ids
+#' (`"55S_L1_0123_0456"`), so nothing already written becomes an
+#' orphan; legacy names are mapped to their resolution via
+#' [LEVEL_RESOLUTIONS].
+#'
 #' @param tile_id Tile identifier string
-#' @return list with zone_id, level, col, row
+#' @return list with zone_id, res (numeric, metres), col, row
 #' @export
 parse_tile_id <- function(tile_id) {
   parts <- strsplit(tile_id, "_")[[1]]
+  tag <- parts[2]
+  res <- if (grepl("^R[0-9]+$", tag)) {
+    as.integer(sub("^R", "", tag))
+  } else if (tag %in% names(LEVEL_RESOLUTIONS)) {
+    unname(LEVEL_RESOLUTIONS[[tag]])
+  } else {
+    stop("unrecognized tile id resolution/level tag: ", tag)
+  }
+
   list(
     zone_id = parts[1],
-    level = parts[2],
+    res = res,
     col = as.integer(parts[3]),
     row = as.integer(parts[4])
   )
 }
 
-#' Get parent tile (L2 -> L1)
+#' Get parent tile at a coarser resolution
 #'
-#' @param l2_col L2 tile column index
-#' @param l2_row L2 tile row index
-#' @return data.frame with parent L1 col and row
+#' @param col,row Tile column/row index at `res_child`
+#' @param res_child,res_parent Numeric resolution in metres (or legacy
+#'   level name); `res_parent / res_child` must be a positive integer
+#' @return data.frame with parent col and row
 #' @export
-get_parent_tile <- function(l2_col, l2_row) {
-  nf <- GRID_SPEC$nesting_factor
+get_parent_tile <- function(col, row, res_child = 10, res_parent = 60) {
+  f <- nesting_factor(res_parent, res_child)
   data.frame(
-    col = floor(l2_col / nf),
-    row = floor(l2_row / nf)
+    col = floor(col / f),
+    row = floor(row / f)
   )
 }
 
-#' Get child tiles (L1 -> L2)
+#' Get child tiles at a finer resolution
 #'
-#' @param l1_col L1 tile column index
-#' @param l1_row L1 tile row index
-#' @return data.frame with all child L2 col and row indices
+#' @param col,row Tile column/row index at `res_parent`
+#' @param res_parent,res_child Numeric resolution in metres (or legacy
+#'   level name); `res_parent / res_child` must be a positive integer
+#' @return data.frame with all child col and row indices
 #' @export
-get_child_tiles <- function(l1_col, l1_row) {
-  nf <- GRID_SPEC$nesting_factor
-
-  # Generate all 6x6 child tiles
-  child_cols <- rep(l1_col * nf + 0:(nf-1), each = nf)
-  child_rows <- rep(l1_row * nf + 0:(nf-1), times = nf)
-
-  data.frame(col = child_cols, row = child_rows)
+get_child_tiles <- function(col, row, res_parent = 60, res_child = 10) {
+  f <- nesting_factor(res_parent, res_child)
+  expand.grid(
+    col = col * f + 0:(f - 1),
+    row = row * f + 0:(f - 1)
+  )
 }
+
+#' Nesting factor between two resolutions
+#'
+#' Nesting is exact whenever `res_parent / res_child` is a positive
+#' integer; this is enforced here rather than assumed by convention.
+#'
+#' @param res_parent,res_child Numeric resolution in metres, or a
+#'   legacy level name ("L1", "L2")
+#' @return Integer nesting factor
+#' @keywords internal
+nesting_factor <- function(res_parent, res_child) {
+  f <- resolve_res(res_parent) / resolve_res(res_child)
+  if (f <= 0 || f != round(f)) {
+    stop("res_parent / res_child must be a positive integer (got ", f, ")")
+  }
+  as.integer(round(f))
+}
+
+
 
 # ==============================================================================
 # SPATIAL FUNCTIONS (TERRA-BASED)
@@ -165,38 +252,36 @@ get_child_tiles <- function(l1_col, l1_row) {
 #' Create SpatVector polygon for a tile
 #'
 #' @param zone_id Zone identifier
-#' @param level Grid level
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
 #' @param col Tile column
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatVector object with tile polygon
 #' @export
-create_tile_polygon <- function(zone_id, level, col, row, zones) {
+create_tile_polygon <- function(zone_id, res, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
 
-  tile_ext <- tile_index_to_extent(col, row, level,
-                                    zone_info$origin_x,
-                                    zone_info$origin_y)
+  tile_ext <- tile_index_to_extent(col, row, res)
 
   # Create polygon from extent using terra ordering
-  # tile_ext is c(xmin, xmax, ymin, ymax)
   coords <- matrix(c(
-    tile_ext[1], tile_ext[3],  # xmin, ymin
-    tile_ext[2], tile_ext[3],  # xmax, ymin
-    tile_ext[2], tile_ext[4],  # xmax, ymax
-    tile_ext[1], tile_ext[4],  # xmin, ymax
-    tile_ext[1], tile_ext[3]   # xmin, ymin (close)
+    tile_ext$xmin, tile_ext$ymin,
+    tile_ext$xmax, tile_ext$ymin,
+    tile_ext$xmax, tile_ext$ymax,
+    tile_ext$xmin, tile_ext$ymax,
+    tile_ext$xmin, tile_ext$ymin   # close
   ), ncol = 2, byrow = TRUE)
 
   # Create SpatVector polygon
   tile_vect <- vect(coords, type = "polygons", crs = zone_info$epsg)
 
   # Add attributes
-  tile_id <- make_tile_id(zone_id, level, col, row)
+  tile_id <- make_tile_id(zone_id, res, col, row)
   values(tile_vect) <- data.frame(
     tile_id = tile_id,
     zone_id = zone_id,
-    level = level,
+    res = resolve_res(res),
     col = col,
     row = row
   )
@@ -207,48 +292,72 @@ create_tile_polygon <- function(zone_id, level, col, row, zones) {
 #' Create SpatExtent for a tile
 #'
 #' @param zone_id Zone identifier
-#' @param level Grid level
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
 #' @param col Tile column
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatExtent object
 #' @export
-create_tile_extent <- function(zone_id, level, col, row, zones) {
+create_tile_extent <- function(zone_id, res, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
 
-  tile_ext <- tile_index_to_extent(col, row, level,
-                                    zone_info$origin_x,
-                                    zone_info$origin_y)
+  tile_ext <- tile_index_to_extent(col, row, res)
 
   # terra ext() takes xmin, xmax, ymin, ymax
-  ext(tile_ext[1], tile_ext[2], tile_ext[3], tile_ext[4])
+  ext(tile_ext$xmin, tile_ext$xmax, tile_ext$ymin, tile_ext$ymax)
 }
 
 #' Create template SpatRaster for a tile
 #'
 #' @param zone_id Zone identifier
-#' @param level Grid level
+#' @param res Numeric resolution in metres, or a legacy level name
+#'   ("L1", "L2")
 #' @param col Tile column
 #' @param row Tile row
 #' @param zones UTM zone definitions
 #' @return SpatRaster template (empty raster with correct extent/resolution)
 #' @export
-create_tile_template <- function(zone_id, level, col, row, zones) {
+create_tile_template <- function(zone_id, res, col, row, zones) {
   zone_info <- zones[zones$zone_id == zone_id, ]
 
   # Get tile extent
-  tile_ext <- create_tile_extent(zone_id, level, col, row, zones)
+  tile_ext <- create_tile_extent(zone_id, res, col, row, zones)
 
   # Create raster template
-  npixels <- GRID_SPEC[[level]]$pixels
-  resolution <- GRID_SPEC[[level]]$resolution
+  npixels <- PIXELS_PER_TILE
+  resolution <- resolve_res(res)
 
   r <- rast(tile_ext, nrows = npixels, ncols = npixels, crs = zone_info$epsg)
 
   # Add metadata
-  names(r) <- make_tile_id(zone_id, level, col, row)
+  names(r) <- make_tile_id(zone_id, res, col, row)
 
   return(r)
+}
+
+# ==============================================================================
+# COORDINATE CONVERSION
+# ==============================================================================
+
+#' Convert lon/lat coordinates to UTM in a given zone
+#'
+#' @param lon,lat Numeric vectors, WGS84 degrees
+#' @param zone Zone identifier, e.g. "43S" (see [define_utm_zones()])
+#' @return data.frame with x, y (UTM metres)
+#' @export
+lonlat_to_utm <- function(lon, lat, zone) {
+  zones <- define_utm_zones()
+  zone_info <- zones[zones$zone_id == zone, ]
+  if (nrow(zone_info) != 1) {
+    stop("unknown zone: ", zone)
+  }
+
+  pts <- vect(cbind(lon, lat), crs = "EPSG:4326")
+  pts_utm <- project(pts, zone_info$epsg)
+  xy <- crds(pts_utm)
+
+  data.frame(x = xy[, 1], y = xy[, 2])
 }
 
 # ==============================================================================
@@ -295,7 +404,9 @@ save_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   zones <- define_utm_zones()
 
   spec <- list(
-    grid_params = GRID_SPEC,
+    origin = GRID_ORIGIN,
+    pixels_per_tile = PIXELS_PER_TILE,
+    level_resolutions = LEVEL_RESOLUTIONS,
     utm_zones = zones,
     created = Sys.time(),
     description = "Australian Antarctic Territory grid system aligned to Sentinel-2"

@@ -21,8 +21,6 @@ define_utm_zones <- function() {
     zone_number = zone_numbers,
     hemisphere = "S",
     epsg = paste0("EPSG:327", zone_numbers),
-    origin_x = 166021,
-    origin_y = 0,
     central_meridian = -183 + (zone_numbers * 6),
     zone_id = paste0(zone_numbers, "S"),
     stringsAsFactors = FALSE
@@ -33,17 +31,17 @@ define_utm_zones <- function() {
 # TILE INDEXING FUNCTIONS
 # ==============================================================================
 
-utm_to_tile_index <- function(x, y, level, origin_x = 166021, origin_y = 0) {
+utm_to_tile_index <- function(x, y, level) {
   tile_size <- GRID_SPEC[[level]]$tile_size
-  col <- floor((x - origin_x) / tile_size)
-  row <- floor((y - origin_y) / tile_size)
+  col <- floor((x - GRID_SPEC[[level]]$origin_x) / tile_size)
+  row <- floor((y - GRID_SPEC[[level]]$origin_y) / tile_size)
   data.frame(col = col, row = row)
 }
 
-tile_index_to_bbox <- function(col, row, level, origin_x = 166021, origin_y = 0) {
+tile_index_to_bbox <- function(col, row, level) {
   tile_size <- GRID_SPEC[[level]]$tile_size
-  xmin <- origin_x + (col * tile_size)
-  ymin <- origin_y + (row * tile_size)
+  xmin <- GRID_SPEC[[level]]$origin_x + (col * tile_size)
+  ymin <- GRID_SPEC[[level]]$origin_y + (row * tile_size)
   xmax <- xmin + tile_size
   ymax <- ymin + tile_size
   data.frame(xmin = xmin, ymin = ymin, xmax = xmax, ymax = ymax)
@@ -71,28 +69,28 @@ lonlat_to_utm <- function(lon, lat, zone_number) {
   k0 <- 0.9996
   a <- 6378137  # WGS84 equatorial radius
   e <- 0.0818191908426  # WGS84 eccentricity
-  
+
   lat_rad <- lat * pi / 180
   lon_rad <- (lon - lon0) * pi / 180
-  
+
   N <- a / sqrt(1 - e^2 * sin(lat_rad)^2)
   T <- tan(lat_rad)^2
   C <- e^2 * cos(lat_rad)^2 / (1 - e^2)
   A <- lon_rad * cos(lat_rad)
-  
+
   M <- a * ((1 - e^2/4 - 3*e^4/64 - 5*e^6/256) * lat_rad -
             (3*e^2/8 + 3*e^4/32 + 45*e^6/1024) * sin(2*lat_rad) +
             (15*e^4/256 + 45*e^6/1024) * sin(4*lat_rad) -
             (35*e^6/3072) * sin(6*lat_rad))
-  
-  x <- k0 * N * (A + (1 - T + C) * A^3/6 + 
+
+  x <- k0 * N * (A + (1 - T + C) * A^3/6 +
                   (5 - 18*T + T^2 + 72*C - 58*e^2/(1-e^2)) * A^5/120) + 500000
   y <- k0 * (M + N * tan(lat_rad) * (A^2/2 + (5 - T + 9*C + 4*C^2) * A^4/24 +
               (61 - 58*T + T^2 + 600*C - 330*e^2/(1-e^2)) * A^6/720))
-  
+
   # Southern hemisphere adjustment
   y <- y + 10000000
-  
+
   c(x = x, y = y)
 }
 
@@ -110,7 +108,7 @@ zones <- define_utm_zones()
 
 cat("Grid System Overview\n")
 cat("--------------------\n")
-cat(sprintf("UTM Zones: %d-%d (Southern Hemisphere)\n", 
+cat(sprintf("UTM Zones: %d-%d (Southern Hemisphere)\n",
             min(zones$zone_number), max(zones$zone_number)))
 cat(sprintf("Coverage: ~44°E to ~160°E longitude\n\n"))
 
@@ -165,7 +163,7 @@ l2_bbox <- tile_index_to_bbox(l2_idx$col, l2_idx$row, "L2",
                                zone_info$origin_x, zone_info$origin_y)
 
 cat(sprintf("\nL1 Tile Bounds (UTM):\n"))
-cat(sprintf("  X: %.0f to %.0f (%.0f km width)\n", 
+cat(sprintf("  X: %.0f to %.0f (%.0f km width)\n",
             l1_bbox$xmin, l1_bbox$xmax, (l1_bbox$xmax - l1_bbox$xmin)/1000))
 cat(sprintf("  Y: %.0f to %.0f (%.0f km height)\n",
             l1_bbox$ymin, l1_bbox$ymax, (l1_bbox$ymax - l1_bbox$ymin)/1000))
@@ -198,7 +196,7 @@ cat(sprintf("  → Row range: %d to %d\n", min(children$row), max(children$row))
 
 cat("\n  First few child tile IDs:\n")
 for (i in 1:min(6, nrow(children))) {
-  child_id <- make_tile_id(zone_info$zone_id, "L2", 
+  child_id <- make_tile_id(zone_info$zone_id, "L2",
                            children$col[i], children$row[i])
   cat(sprintf("    %s\n", child_id))
 }
@@ -246,7 +244,7 @@ for (loc in locations) {
   l1_idx <- utm_to_tile_index(utm["x"], utm["y"], "L1",
                                zone_info$origin_x, zone_info$origin_y)
   tile_id <- make_tile_id(zone_info$zone_id, "L1", l1_idx$col, l1_idx$row)
-  
+
   cat(sprintf("  %s (%.2f°E, %.2f°S)\n", loc$name, loc$lon, loc$lat))
   cat(sprintf("    Zone: %s\n", zone_info$zone_id))
   cat(sprintf("    L1 tile: %s\n\n", tile_id))

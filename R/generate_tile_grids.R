@@ -11,11 +11,11 @@
 #' Generate tiles covering an extent
 #'
 #' @param extent_lonlat Numeric vector c(xmin, xmax, ymin, ymax) in WGS84 lon/lat (terra ordering)
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @return SpatVector with all tiles covering the extent
 #' @export
-generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
+generate_tiles_for_extent <- function(extent_lonlat, res, zones) {
 
   # Determine which UTM zones intersect this extent
   lon_range <- c(extent_lonlat[1], extent_lonlat[2])
@@ -48,14 +48,10 @@ generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
     extent_utm <- project(extent_vect, zone$epsg)
     extent_utm_ext <- ext(extent_utm)
 
-    # Calculate tile index ranges
-    tile_size <- GRID_SPEC[[level]]$tile_size
-
-    # extent is c(xmin, xmax, ymin, ymax)
-    min_idx <- utm_to_tile_index(extent_utm_ext[1], extent_utm_ext[3],
-                                  level, zone$origin_x, zone$origin_y)
-    max_idx <- utm_to_tile_index(extent_utm_ext[2], extent_utm_ext[4],
-                                  level, zone$origin_x, zone$origin_y)
+    # extent is c(xmin, xmax, ymin, ymax); grid origin is shared by
+    # every zone (GRID_ORIGIN), so no per-zone origin is needed here
+    min_idx <- utm_to_tile_index(extent_utm_ext[1], extent_utm_ext[3], res)
+    max_idx <- utm_to_tile_index(extent_utm_ext[2], extent_utm_ext[4], res)
 
     # Generate all tiles in range
     cols <- min_idx$col:max_idx$col
@@ -65,7 +61,7 @@ generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
 
     # Create tile polygons
     tiles_list <- lapply(1:nrow(zone_tiles), function(j) {
-      create_tile_polygon(zone$zone_id, level,
+      create_tile_polygon(zone$zone_id, res,
                          zone_tiles$col[j],
                          zone_tiles$row[j],
                          zones)
@@ -87,15 +83,30 @@ generate_tiles_for_extent <- function(extent_lonlat, level, zones) {
   return(result)
 }
 
+#' Generate tiles covering a bounding box (legacy name)
+#'
+#' Pre-rename name for [generate_tiles_for_extent()] (renamed when the
+#' package switched from sf-style bbox ordering to terra's extent
+#' ordering); kept as an alias because `generate_tiles_for_feature()`
+#' still calls it under this name. Use [generate_tiles_for_extent()] in
+#' new code.
+#'
+#' @inheritParams generate_tiles_for_extent
+#' @return SpatVector with all tiles covering the bounding box
+#' @export
+generate_tiles_for_bbox <- function(extent_lonlat, res, zones) {
+  generate_tiles_for_extent(extent_lonlat, res, zones)
+}
+
 #' Generate tiles that intersect a spatial feature
 #'
 #' @param feature_vect SpatVector object (polygon or multipolygon) in any CRS
-#' @param level Grid level ("L1" or "L2")
+#' @param res Numeric resolution in metres, or a legacy level name ("L1", "L2")
 #' @param zones UTM zone definitions
 #' @param buffer_m Buffer distance in meters (optional)
 #' @return SpatVector with tiles that intersect the feature
 #' @export
-generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0) {
+generate_tiles_for_feature <- function(feature_vect, res, zones, buffer_m = 0) {
 
   # Get bbox in lon/lat
   feature_lonlat <- project(feature_vect, "EPSG:4326")
@@ -103,7 +114,7 @@ generate_tiles_for_feature <- function(feature_vect, level, zones, buffer_m = 0)
 
   # Generate tiles covering bbox
   bbox_vec <- c(xmin = bbox[1], ymin = bbox[3], xmax = bbox[2], ymax = bbox[4])
-  candidate_tiles <- generate_tiles_for_bbox(bbox_vec, level, zones)
+  candidate_tiles <- generate_tiles_for_bbox(bbox_vec, res, zones)
 
   if (is.null(candidate_tiles)) {
     return(NULL)
@@ -196,20 +207,20 @@ get_aat_regions <- function() {
 generate_tile_hierarchy <- function(feature_vect, zones) {
 
   # Generate L1 tiles
-  l1_tiles <- generate_tiles_for_feature(feature_vect, "L1", zones)
+  l1_tiles <- generate_tiles_for_feature(feature_vect, 60, zones)
 
   if (is.null(l1_tiles)) {
     return(list(L1 = NULL, L2 = NULL))
   }
 
-  # For each L1 tile, generate its child L2 tiles
+  # For each L1 tile, generate its child L2 tiles (defaults: 60 -> 10 m)
   l1_values <- values(l1_tiles)
   l2_tiles_list <- lapply(1:nrow(l1_values), function(i) {
     children <- get_child_tiles(l1_values$col[i], l1_values$row[i])
 
     # Create L2 tile polygons
     tiles <- lapply(1:nrow(children), function(j) {
-      create_tile_polygon(l1_values$zone_id[i], "L2",
+      create_tile_polygon(l1_values$zone_id[i], 10,
                          children$col[j],
                          children$row[j],
                          zones)
@@ -221,7 +232,7 @@ generate_tile_hierarchy <- function(feature_vect, zones) {
   l2_tiles <- do.call(rbind, l2_tiles_list)
 
   # Filter L2 tiles to those that intersect feature
-  l2_tiles <- generate_tiles_for_feature(feature_vect, "L2", zones)
+  l2_tiles <- generate_tiles_for_feature(feature_vect, 10, zones)
 
   list(
     L1 = l1_tiles,
@@ -276,10 +287,10 @@ create_tile_catalog <- function(tiles_vect) {
   catalog <- values(tiles_vect)
 
   # Add additional metadata
-  level <- catalog$level[1]
-  catalog$tile_size_m <- GRID_SPEC[[level]]$tile_size
-  catalog$resolution_m <- GRID_SPEC[[level]]$resolution
-  catalog$pixels <- GRID_SPEC[[level]]$pixels
+  res <- catalog$res[1]
+  catalog$tile_size_m <- tile_size(res)
+  catalog$resolution_m <- resolve_res(res)
+  catalog$pixels <- PIXELS_PER_TILE
 
   # Add extent coordinates (terra ordering: xmin, xmax, ymin, ymax)
   extents <- do.call(rbind, lapply(1:nrow(catalog), function(i) {

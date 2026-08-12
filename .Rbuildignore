@@ -9,3 +9,5 @@
 ^examples$
 ^\.github$
 ^aatgrid\.Rproj$
+^CLAUDE.md$
+^\.posit/assistant$

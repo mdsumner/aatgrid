@@ -6,9 +6,11 @@
 #'
 #' @description
 #' The aatgrid package provides tools for working with a standardized grid
-#' system covering the Australian Antarctic Territory. The system uses:
+#' system covering the Australian Antarctic Territory. The grid is
+#' parametric: an origin, a fixed 600-pixel tile, and a resolution, so
+#' tile size is always derived (see [GRID_SPEC]). "L1" (60 m) and "L2"
+#' (10 m) are named instances of this, kept as convenience aliases.
 #' \itemize{
-#'   \item Two resolution levels (L1: 36km tiles, L2: 6km tiles)
 #'   \item UTM projections (zones 42S-58S)
 #'   \item Sentinel-2 grid alignment
 #'   \item Fast raster-based tile identification
