@@ -106,6 +106,7 @@ generate_tiles_for_bbox <- function(extent_lonlat, res, zones) {
 #' @param buffer_m Buffer distance in meters (optional)
 #' @return SpatVector with tiles that intersect the feature
 #' @export
+#' @importFrom terra values values<- res<-
 generate_tiles_for_feature <- function(feature_vect, res, zones, buffer_m = 0) {
 
   # Get bbox in lon/lat
@@ -122,13 +123,13 @@ generate_tiles_for_feature <- function(feature_vect, res, zones, buffer_m = 0) {
 
   # Filter to only tiles that actually intersect the feature
   # For each unique zone, transform feature and test intersection
-  zones_in_tiles <- unique(values(candidate_tiles)$zone_id)
+  zones_in_tiles <- unique(terra::values(candidate_tiles)$zone_id)
 
   intersecting_tiles <- list()
 
   for (zone_id in zones_in_tiles) {
     zone_info <- zones[zones$zone_id == zone_id, ]
-    zone_tile_idx <- values(candidate_tiles)$zone_id == zone_id
+    zone_tile_idx <- terra::values(candidate_tiles)$zone_id == zone_id
     zone_tiles <- candidate_tiles[zone_tile_idx, ]
 
     # Transform feature to this zone's CRS
@@ -313,6 +314,7 @@ create_tile_catalog <- function(tiles_vect) {
 #' @param tiles_vect SpatVector with tiles
 #' @param filename Output CSV filename
 #' @export
+#' @importFrom utils write.csv
 export_tile_catalog <- function(tiles_vect, filename) {
   catalog <- create_tile_catalog(tiles_vect)
   write.csv(catalog, filename, row.names = FALSE)

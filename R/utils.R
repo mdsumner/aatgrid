@@ -1,4 +1,5 @@
-get_map <- memoise::memoize(function(ex, crs = NULL) {
+#' @importFrom sds CGAZ
+get_map <- function(ex, crs = NULL) {
   src <- sds::CGAZ()
   if (!is.numeric(ex)) {
     ex <- try(as.vector(terra::ext(terra::project(terra::ext(ex), to = "EPSG:4326", from = terra::crs(ex)))))
@@ -16,7 +17,7 @@ get_map <- memoise::memoize(function(ex, crs = NULL) {
   }
 
   x
-})
+}
 
 myic_traverse <- function(){
   structure(list(V2 = c(123.54714, 122.71876, 121.857417, 121.118274,

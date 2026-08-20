@@ -35,17 +35,17 @@ resolutions (36km and 6km tiles) aligned with Sentinel-2 grid origins.
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/YOUR-USERNAME/aat-grid-system}
-  \item Report bugs at \url{https://github.com/YOUR-USERNAME/aat-grid-system/issues}
+  \item \url{https://github.com/mdsumner/aat-grid-system}
+  \item Report bugs at \url{https://github.com/mdsumner/aat-grid-system/issues}
 }
 
 }
 \author{
-\strong{Maintainer}: Your Name \email{your.email@example.com}
+\strong{Maintainer}: Michael Sumner \email{mdsumner@gmail.com} [copyright holder]
 
 Authors:
 \itemize{
-  \item Your Name \email{your.email@example.com}
+  \item Michael Sumner \email{mdsumner@gmail.com} [copyright holder]
 }
 
 }

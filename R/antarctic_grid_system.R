@@ -278,7 +278,7 @@ create_tile_polygon <- function(zone_id, res, col, row, zones) {
 
   # Add attributes
   tile_id <- make_tile_id(zone_id, res, col, row)
-  values(tile_vect) <- data.frame(
+  terra::values(tile_vect) <- data.frame(
     tile_id = tile_id,
     zone_id = zone_id,
     res = resolve_res(res),
@@ -394,12 +394,7 @@ if (FALSE) {
   print(parent)
 }
 
-# ==============================================================================
-# SAVE GRID SPECIFICATION
-# ==============================================================================
 
-#' Save grid specification to RDS file
-#' @export
 save_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   zones <- define_utm_zones()
 
@@ -417,8 +412,7 @@ save_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   return(spec)
 }
 
-#' Load grid specification from RDS file
-#' @export
+
 load_grid_spec <- function(filename = "antarctic_grid_spec.rds") {
   if (!file.exists(filename)) {
     stop("Grid specification file not found: ", filename)

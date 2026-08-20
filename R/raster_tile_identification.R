@@ -19,6 +19,7 @@
 #' @param zone_extent Optional: limit extent (xmin, xmax, ymin, ymax) in UTM coords
 #' @return SpatRaster where each cell = one tile
 #' @export
+#' @importFrom terra rast res<-
 create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
   zone_info <- zones[zones$zone_id == zone_id, ]
 
@@ -55,10 +56,10 @@ create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
   nrows <- round((ymax_snap - ymin_snap) / ts)
 
   # Create raster
-  r <- rast(zone_ext, nrows = nrows, ncols = ncols, crs = zone_info$epsg)
+  r <- terra::rast(zone_ext, nrows = nrows, ncols = ncols, crs = zone_info$epsg)
 
   # Set resolution explicitly to ensure exact tile size
-  res(r) <- c(ts, ts)
+  terra::res(r) <- c(ts, ts)
 
   # Add metadata
   names(r) <- paste0(zone_id, "_", res, "_grid")
