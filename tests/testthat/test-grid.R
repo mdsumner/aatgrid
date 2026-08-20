@@ -106,6 +106,13 @@ test_that("legacy level-named ids still parse (nothing already written orphans)"
   p2 <- parse_tile_id("43S_L2_0006_0113")
   expect_identical(p2$res, 10)
 })
+test_that("zone identifiers are padded", {
+expect_identical(parse_tile_id("1S_R0060_0005_0113")$zone_id, "01S")
+expect_identical(
+  with(parse_tile_id("01S_R0060_0005_0113"),
+       make_tile_id(zone_id, res, col, row)),
+  "01S_R0060_0005_0113")
+})
 
 ## ---------------------------------------------------------------------------
 ## Heard / McDonald integration case (zone 43S, EPSG:32743)

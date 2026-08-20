@@ -87,13 +87,14 @@ check_recyclable_lengths <- function(...) {
 #' zones <- define_utm_zones()
 #' print(zones[zones$zone_id == "43S", ])
 define_utm_zones <- function() {
-  # Zones covering AAT longitude range (44°E to 160°E)
-  zone_numbers <- 39:60  # Conservative range to ensure full coverage
+  # Zones covering all longitude range
+  ## not just AAT which is (44E to 160E)
+  zone_numbers <- 1:60
 
   zones <- data.frame(
     zone_number = zone_numbers,
     hemisphere = "S",
-    epsg = paste0("EPSG:327", zone_numbers),
+    epsg = paste0("EPSG:327", sprintf("%02d",  zone_numbers)),
     # Sentinel-2 grid origin (standard for UTM southern hemisphere);
     # identical across every zone (see GRID_ORIGIN)
     origin_x = GRID_ORIGIN[["x"]],
@@ -104,7 +105,8 @@ define_utm_zones <- function() {
   )
 
   # Add zone ID (e.g., "42S", "43S", ...)
-  zones$zone_id <- paste0(zones$zone_number, zones$hemisphere)
+  zones$zone_id <- paste0(sprintf("%02d", zones$zone_number),
+                          zones$hemisphere)
 
   return(zones)
 }
@@ -161,6 +163,12 @@ tile_index_to_extent <- function(col, row, res) {
 make_tile_id <- function(zone_id, res, col, row) {
   check_recyclable_lengths(zone_id, col, row)
   res <- resolve_res(res)
+  for (i in seq_along(zone_id)) {
+    if (nchar(zone_id[i]) == 2) {
+      nc <- paste0("0", zone_id[i])
+      zone_id[i] <- nc
+    }
+  }
   paste0(zone_id, "_R", sprintf("%04d", res), "_",
          sprintf("%04d", col), "_",
          sprintf("%04d", row))
@@ -187,12 +195,16 @@ parse_tile_id <- function(tile_id) {
   } else {
     stop("unrecognized tile id resolution/level tag: ", tag)
   }
-
+  if (nchar(parts[1]) == 2) {
+    parts[1] <- paste0("0", parts[1])
+  }
   list(
     zone_id = parts[1],
     res = res,
     col = as.integer(parts[3]),
-    row = as.integer(parts[4])
+    row = as.integer(parts[4]),
+    zone_number = as.integer(gsub("[[:alpha:]]", "", parts[1])),
+    hemisphere = gsub("[[:digit:]]", "", parts[1])
   )
 }
 
