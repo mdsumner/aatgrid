@@ -1,7 +1,7 @@
 Package: aatgrid
 Type: Package
 Title: Antarctic Territory Grid System
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: person("Michael", "Sumner", email = "mdsumner@gmail.com",
                   role = c("aut", "cre", "cph"))
 Description: A hierarchical geospatial tiling system for the Australian Antarctic 
@@ -23,10 +23,12 @@ Imports:
 Suggests:
     testthat (>= 3.0.0),
     knitr,
-    rmarkdown
+    rmarkdown,
+    geographiclib,
+    PROJ
 Roxygen: list(markdown = TRUE)
 URL: https://github.com/mdsumner/aat-grid-system
 BugReports: https://github.com/mdsumner/aat-grid-system/issues
 Config/testthat/edition: 3
-Config/roxygen2/version: 8.0.0
-Remotes: hypertidy/sds
+Config/roxygen2/version: 8.1.0
+Remotes: hypertidy/sds, hypertidy/PROJ
