@@ -12,3 +12,4 @@
 ^CLAUDE.md$
 ^\.posit/assistant$
 ^\.posit$
+^data-raw$
