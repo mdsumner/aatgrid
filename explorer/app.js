@@ -34,8 +34,7 @@ const PLACES = [
 const SOURCES = {
   esri: {
     label: "Esri World Imagery", maxZ: 18,
-    //url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
-    url: (z, x, y)=> `http://mt.google.com/vt/lyrs=y&x=${x}&y=${y}&z=${z}`,
+    url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
     attrib: "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community"
   },
   osm: {
