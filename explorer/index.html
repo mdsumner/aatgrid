@@ -128,6 +128,7 @@ canvas#gl { pointer-events: none; }
     <section aria-labelledby="h-go">
       <h2 id="h-go">Go to</h2>
       <div class="chips" id="presets"></div>
+      <p class="note">These move the map; the tile set is unchanged.</p>
       <form class="row" id="goto-form">
         <input type="text" id="goto" class="grow" placeholder="73.5, -53.1  or  43S_R0010_0033_0571" aria-label="Longitude, latitude or tile id">
         <button type="submit">Go</button>
@@ -198,6 +199,7 @@ canvas#gl { pointer-events: none; }
       <span class="sw" style="border-top:2px solid var(--accent);height:0"></span><span>AAT sector</span>
       <span class="sw" style="background:var(--bg);border-color:var(--muted)"></span><span>Beyond this zone's view</span>
       <span class="sw" style="background:var(--void);opacity:.35"></span><span>No grid (negative index)</span>
+      <span class="sw" style="border-radius:50%;width:10px;height:10px;border:2px solid var(--ink);background:var(--surface)"></span><span>Named place</span>
       <span class="foot">Tints are sampled at screen resolution; the tile set uses exact geometry.</span>
     </div>
     <div class="ov readout" id="readout">Move over the map</div>

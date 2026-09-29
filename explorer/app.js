@@ -19,6 +19,18 @@ const PRESETS = [
   { name: "Whole AAT", lon: 100, lat: -71, km: 5200, zone: 46 }
 ];
 
+// Named places drawn as reference markers (not selections)
+const PLACES = [
+  { name: "Davis", lon: 77.9675, lat: -68.5767 },
+  { name: "Mawson", lon: 62.8736, lat: -67.6028 },
+  { name: "Casey", lon: 110.5269, lat: -66.2821 },
+  { name: "Heard Island", lon: 73.5, lat: -53.1 },
+  { name: "Macquarie Island", lon: 158.87, lat: -54.62 },
+  { name: "Auster colony", lon: 64.0, lat: -67.39 },
+  { name: "Vestfold Hills", lon: 78.25, lat: -68.5 },
+  { name: "Larsemann Hills", lon: 76.33, lat: -69.38 }
+];
+
 const SOURCES = {
   esri: {
     label: "Esri World Imagery", maxZ: 18,
@@ -666,6 +678,24 @@ function renderBase() {
       if (imageryOn) { c.fillStyle = T.ink; c.globalAlpha = 0.55; c.fillRect(sx(x0) + 2, sy(y1) + 2, 72, 15); c.globalAlpha = 1; c.fillStyle = T.surface; }
       else c.fillStyle = T.muted;
       c.fillText(lab, sx(x0) + 4, sy(y1) + 4);
+    }
+    c.restore();
+  }
+
+  // named places
+  {
+    const cm = cmOf(st.zone);
+    c.save();
+    c.font = "500 12px " + getComputedStyle(document.body).getPropertyValue("--f-ui");
+    c.textBaseline = "middle"; c.lineJoin = "round";
+    for (const pl of PLACES) {
+      if (Math.abs(dlon(pl.lon, cm)) >= 89.5 || !inDomain(pl.lon, pl.lat)) continue;
+      const q = UTM.fwd(pl.lon, pl.lat, cm), x = sx(q[0]), y = sy(q[1]);
+      if (x < -50 || x > W + 50 || y < -20 || y > H + 20) continue;
+      c.beginPath(); c.arc(x, y, 4, 0, 2 * Math.PI);
+      c.fillStyle = T.surface; c.fill(); c.lineWidth = 2; c.strokeStyle = T.ink; c.stroke();
+      c.lineWidth = 3; c.strokeStyle = T.surface; c.strokeText(pl.name, x + 8, y);
+      c.fillStyle = T.ink; c.fillText(pl.name, x + 8, y);
     }
     c.restore();
   }
