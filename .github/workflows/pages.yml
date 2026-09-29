@@ -35,7 +35,8 @@ jobs:
       - name: Assemble site
         run: |
           mkdir -p _site/explorer
-          cp explorer/index.html explorer/app.js explorer/utm.js explorer/coast.json _site/explorer/
+          cp explorer/index.html explorer/app.js explorer/utm.js _site/explorer/
+          cp -r explorer/coast _site/explorer/coast
           cat > _site/index.html <<'EOF'
           <!doctype html>
           <meta charset="utf-8">

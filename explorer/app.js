@@ -1,34 +1,11 @@
-fetch("coast.json")
-  .then(r => { if (!r.ok) throw new Error("coast.json: HTTP " + r.status); return r.json(); })
-  .then(main)
-  .catch(err => {
-    const el = document.getElementById("status");
-    el.hidden = false;
-    el.textContent = "Could not load coastline data (" + err.message + "). Serve this folder over HTTP rather than opening the file directly.";
-  });
-
-function main(RAW) {
+(function () {
 "use strict";
 
-// ---------------------------------------------------------------- data
-const Q = RAW.q || 1000;
-function decode(strips) {
-  return strips.map(([lon0, polys]) => ({
-    lon0,
-    polys: polys.map(rings => rings.map(fl => {
-      const a = new Float64Array(fl.length);
-      let x = 0, y = 0;
-      for (let i = 0; i < fl.length; i += 2) {
-        x += fl[i]; y += fl[i + 1];
-        a[i] = x / Q; a[i + 1] = y / Q;
-      }
-      return a;
-    }))
-  }));
-}
-const COAST = { land: decode(RAW.land), shelf: decode(RAW.shelf) };
+// ---------------------------------------------------------------- constants
+const D = Math.PI / 180;
 const LEVELS = { L1: 60, L2: 10 };
-const LON_WINDOW = 46;   // degrees either side of the central meridian we project
+const SCALE_OPTS = [1.05, 1.1, 1.2, 1.4];   // max TM scale factor shown
+const LAT_CAP = -45;                         // northern limit of the coastline data
 
 const PRESETS = [
   { name: "Heard & McDonald", lon: 73.25, lat: -53.08, km: 110 },
@@ -36,26 +13,42 @@ const PRESETS = [
   { name: "Auster", lon: 64.0, lat: -67.39, km: 40 },
   { name: "Mawson", lon: 62.87, lat: -67.6, km: 40 },
   { name: "Davis", lon: 77.97, lat: -68.58, km: 50 },
+  { name: "Vestfold Hills", lon: 78.2, lat: -68.55, km: 60, zone: 44 },
   { name: "Casey", lon: 110.53, lat: -66.28, km: 50 },
   { name: "Amery Ice Shelf", lon: 70.5, lat: -70.3, km: 600 },
-  { name: "Whole AAT", lon: 96, lat: -70, km: 5600, zone: 46 }
+  { name: "Whole AAT", lon: 100, lat: -71, km: 5200, zone: 46 }
 ];
+
+const SOURCES = {
+  esri: {
+    label: "Esri World Imagery", maxZ: 18,
+    url: (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`,
+    attrib: "Imagery &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+  },
+  osm: {
+    label: "OpenStreetMap", maxZ: 18,
+    url: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+    attrib: "&copy; <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener\">OpenStreetMap</a> contributors"
+  }
+};
 
 // ---------------------------------------------------------------- state
 const st = {
   zone: 43, ox: 140000, oy: 20000, px: 720, resList: [10, 20, 60], active: 10,
   cx: 0, cy: 0, s: 0.01, W: 0, H: 0, dpr: 1,
-  layers: { land: [], shelf: [] }, lines: { zone: [], aat: [], grat: [] },
+  kmax: 1.2, bg: "plain",
+  layers: { land: [], shelf: [] }, lines: { zone: [], aat: [], grat: [], gratFine: [], domain: null },
   set: new Map(), cmp: [], inspect: null, hover: null
 };
 
 const $ = id => document.getElementById(id);
 const canvas = $("map"), ctx = canvas.getContext("2d");
+const glc = $("gl");
 const base = document.createElement("canvas"), bctx = base.getContext("2d");
 const mask = document.createElement("canvas"), mctx = mask.getContext("2d", { willReadFrequently: true });
 
 // ---------------------------------------------------------------- theme
-const TOK = ["ocean", "land", "shelf", "shelf-edge", "grid", "grat", "accent", "t-land", "t-shelf", "hl", "void", "muted", "ink", "surface"];
+const TOK = ["bg", "ocean", "land", "shelf", "shelf-edge", "grid", "grat", "accent", "t-land", "t-shelf", "hl", "void", "muted", "ink", "surface", "rule"];
 let T = {};
 let hatch = null;
 function readTokens() {
@@ -72,7 +65,8 @@ new MutationObserver(() => { readTokens(); invalidate(); }).observe(document.doc
 
 // ---------------------------------------------------------------- grid arithmetic (mirrors aatgrid R/)
 const cmOf = z => -183 + 6 * z;
-const zoneOfLon = lon => Math.floor((lon + 180) / 6) + 1;
+const zoneOfLon = lon => Math.floor((((lon + 180) % 360) + 360) % 360 / 6) + 1;
+const dlon = (lon, cm) => ((((lon - cm + 180) % 360) + 360) % 360) - 180;
 const tsz = res => st.px * res;
 const pad4 = n => String(n).padStart(4, "0");
 const zid = z => String(z).padStart(2, "0") + "S";
@@ -102,14 +96,76 @@ function factorise(n) {
 }
 function fmtNum(v) { return Number.isInteger(v) ? String(v) : String(parseFloat(v.toFixed(3))); }
 function fmtLL(lon, lat) {
+  lon = dlon(lon, 0);
   return `${Math.abs(lon).toFixed(4)}&deg;${lon >= 0 ? "E" : "W"} ${Math.abs(lat).toFixed(4)}&deg;${lat >= 0 ? "N" : "S"}`;
 }
 
-// ---------------------------------------------------------------- projection of layers into the zone
+// ---------------------------------------------------------------- view domain
+// Shown: south of LAT_CAP, within 90 degrees of the central meridian, and where
+// the zone's transverse Mercator scale factor stays under st.kmax. Scale
+// factor k ~ 1 / sqrt(1 - B^2) with B = cos(lat) sin(dlon), so near the pole
+// the band opens to the full hemisphere of longitudes.
+function bmax() { return Math.sqrt(1 - 1 / (st.kmax * st.kmax)); }
+function dmax(lat) {
+  const c = Math.cos(lat * D), r = bmax() / Math.max(c, 1e-12);
+  return r >= 1 ? 89.5 : Math.min(89.5, Math.asin(r) / D);
+}
+function inDomain(lon, lat) { return lat <= LAT_CAP && Math.abs(dlon(lon, cmOf(st.zone))) <= dmax(lat); }
+
+// ---------------------------------------------------------------- coastline sectors (lazy)
+let INDEX = null, Q = 10000;
+const COAST = { land: [], shelf: [] };
+const sectorState = new Map();
+function decode(strips) {
+  return strips.map(([lon0, polys]) => ({
+    lon0,
+    polys: polys.map(rings => rings.map(fl => {
+      const a = new Float64Array(fl.length);
+      let x = 0, y = 0;
+      for (let i = 0; i < fl.length; i += 2) {
+        x += fl[i]; y += fl[i + 1];
+        a[i] = x / Q; a[i + 1] = y / Q;
+      }
+      return a;
+    }))
+  }));
+}
+function stripVisible(lon0, cm) { return Math.abs(dlon(lon0, cm)) <= 90 && Math.abs(dlon(lon0 + 2, cm)) <= 90 && Math.abs(dlon(lon0 + 1, cm)) < 90; }
+function sectorVisible(s, cm) { for (let lon = s.lon0; lon < s.lon1; lon += 2) if (stripVisible(lon, cm)) return true; return false; }
+let onCoastIdle = null;
+function ensureSectors() {
+  if (!INDEX) return;
+  const cm = cmOf(st.zone);
+  for (const s of INDEX.sectors) {
+    if (sectorState.has(s.file) || !sectorVisible(s, cm)) continue;
+    sectorState.set(s.file, "loading");
+    fetch("coast/" + s.file)
+      .then(r => { if (!r.ok) throw new Error(s.file + ": HTTP " + r.status); return r.json(); })
+      .then(doc => {
+        sectorState.set(s.file, "done");
+        const L = decode(doc.land), S = decode(doc.shelf);
+        COAST.land.push(...L); COAST.shelf.push(...S);
+        const cmNow = cmOf(st.zone);
+        st.layers.land.push(...projectLayer(L, cmNow));
+        st.layers.shelf.push(...projectLayer(S, cmNow));
+        coastChanged();
+      })
+      .catch(err => { sectorState.set(s.file, "error"); showStatus("Could not load coastline (" + err.message + ")."); coastChanged(); });
+  }
+  coastChanged();
+}
+function coastLoading() { for (const v of sectorState.values()) if (v === "loading") return true; return false; }
+function coastChanged() {
+  if (!coastLoading() && onCoastIdle) { const f = onCoastIdle; onCoastIdle = null; f(); }
+  renderInfo();
+  invalidate();
+}
+
+// ---------------------------------------------------------------- projection into the zone
 function projectLayer(strips, cm) {
   const out = [];
   for (const s of strips) {
-    if (Math.abs(s.lon0 + 1 - cm) > LON_WINDOW) continue;
+    if (!stripVisible(s.lon0, cm)) continue;
     for (const poly of s.polys) {
       const rings = [], rbb = [];
       for (const ll of poly) {
@@ -133,23 +189,43 @@ function polyline(pts, cm) {
   pts.forEach(([lo, la], i) => { const p = UTM.fwd(lo, la, cm); r[2 * i] = p[0]; r[2 * i + 1] = p[1]; });
   return r;
 }
-function meridian(lon, la0, la1, cm) { const p = []; for (let la = la0; la <= la1 + 1e-9; la += 0.25) p.push([lon, la]); return polyline(p, cm); }
+function meridian(lon, la0, la1, cm, step) { const p = []; for (let la = la0; la <= la1 + 1e-9; la += step || 0.25) p.push([lon, la]); return polyline(p, cm); }
 function parallel(lat, lo0, lo1, cm) { const p = []; for (let lo = lo0; lo <= lo1 + 1e-9; lo += 0.25) p.push([lo, lat]); return polyline(p, cm); }
-
+function buildDomain(cm) {
+  const pts = [];
+  for (let la = -90; la <= LAT_CAP + 1e-9; la += 0.25) pts.push([cm + dmax(la), la]);
+  const dm = dmax(LAT_CAP);
+  for (let lo = cm + dm; lo >= cm - dm - 1e-9; lo -= 0.25) pts.push([lo, LAT_CAP]);
+  for (let la = LAT_CAP; la >= -90 - 1e-9; la -= 0.25) pts.push([cm - dmax(la), la]);
+  return polyline(pts, cm);
+}
+function buildLines() {
+  const cm = cmOf(st.zone), lo0 = cm - 89.5, lo1 = cm + 89.5;
+  const grat = [], fine = [];
+  for (let la = -85; la <= LAT_CAP; la += 5) grat.push(parallel(la, lo0, lo1, cm));
+  for (let lo = Math.ceil(lo0 / 10) * 10; lo <= lo1; lo += 10) grat.push(meridian(lo, -90, LAT_CAP, cm));
+  for (let la = -89; la <= LAT_CAP; la += 1) if (la % 5) fine.push(parallel(la, lo0, lo1, cm));
+  for (let lo = Math.ceil(lo0 / 2) * 2; lo <= lo1; lo += 2) if (lo % 10) fine.push(meridian(lo, -90, LAT_CAP, cm));
+  const aat = [];
+  for (const lo of [44.6333, 136.1833, 142.0333, 160]) if (Math.abs(dlon(lo, cm)) < 89.5) aat.push(meridian(lo, -90, -60, cm));
+  for (const [a, b] of [[44.6333, 136.1833], [142.0333, 160]]) {
+    const p = Math.max(a, cm - 89.5), q = Math.min(b, cm + 89.5);
+    if (q > p) aat.push(parallel(-60, p, q, cm));
+  }
+  st.lines = {
+    zone: [meridian(cm - 3, -90, LAT_CAP, cm), meridian(cm + 3, -90, LAT_CAP, cm)],
+    aat, grat, gratFine: fine, domain: buildDomain(cm)
+  };
+}
 function setZone(z) {
   st.zone = z;
-  const cm = cmOf(z), lo0 = cm - LON_WINDOW, lo1 = cm + LON_WINDOW;
+  const cm = cmOf(z);
   st.layers.land = projectLayer(COAST.land, cm);
   st.layers.shelf = projectLayer(COAST.shelf, cm);
-  const grat = [];
-  for (let la = -84; la <= -45; la += 1) grat.push(parallel(la, lo0, lo1, cm));
-  for (let lo = Math.ceil(lo0 / 2) * 2; lo <= lo1; lo += 2) grat.push(meridian(lo, -84, -45, cm));
-  const aat = [];
-  const clampL = (a, b) => [Math.max(a, lo0), Math.min(b, lo1)];
-  for (const lo of [44.6333, 136.1833, 142.0333, 160]) if (Math.abs(lo - cm) <= LON_WINDOW) aat.push(meridian(lo, -84, -60, cm));
-  for (const [a, b] of [[44.6333, 136.1833], [142.0333, 160]]) { const [p, q] = clampL(a, b); if (q > p) aat.push(parallel(-60, p, q, cm)); }
-  st.lines = { zone: [meridian(cm - 3, -84, -40, cm), meridian(cm + 3, -84, -40, cm)], aat, grat };
+  buildLines();
+  imagery.zoneChanged();
   $("zone").value = String(z);
+  ensureSectors();
 }
 
 // ---------------------------------------------------------------- exact geometry
@@ -213,7 +289,7 @@ function visibleRange(res) {
   const r0 = Math.max(0, Math.floor((vb.y0 - st.oy) / t)), r1 = Math.floor((vb.y1 - st.oy) / t);
   return { c0, c1, r0, r1, n: Math.max(0, c1 - c0 + 1) * Math.max(0, r1 - r0 + 1) };
 }
-function clampS(s) { return Math.min(5, Math.max(1.5e-5, s)); }
+function clampS(s) { return Math.min(5, Math.max(8e-6, s)); }
 function centreOn(lon, lat, km, zone) {
   const z = zone || zoneOfLon(lon);
   if (z !== st.zone) setZone(z);
@@ -228,27 +304,204 @@ function fitUTM(x0, x1, y0, y1) {
   invalidate();
 }
 
+// ---------------------------------------------------------------- imagery (WebGL: Web Mercator tiles as meshes projected into the zone)
+const imagery = (() => {
+  let gl = null, prog = null, loc = null, failed = false;
+  const tex = new Map();      // "src/z/x/y" -> {state, tex, used}
+  const meshes = new Map();   // "zone/z/x/y" -> {buf, ibuf, count, ox, oy} or null
+  let inflight = 0, okCount = 0, errCount = 0, useTick = 0;
+  const queue = [];
+  const N = 16;
+
+  function init() {
+    if (gl || failed) return !!gl;
+    gl = glc.getContext("webgl", { alpha: true, premultipliedAlpha: true, antialias: false });
+    if (!gl) { failed = true; return false; }
+    const vs = `attribute vec2 a_rel; attribute vec2 a_uv; uniform vec2 u_off; uniform float u_s; uniform vec2 u_size; varying vec2 v_uv;
+      void main() { vec2 p = (a_rel + u_off) * u_s; vec2 px = vec2(0.5 * u_size.x + p.x, 0.5 * u_size.y - p.y);
+        gl_Position = vec4(px.x / u_size.x * 2.0 - 1.0, 1.0 - px.y / u_size.y * 2.0, 0.0, 1.0); v_uv = a_uv; }`;
+    const fs = `precision mediump float; uniform sampler2D u_tex; varying vec2 v_uv;
+      void main() { gl_FragColor = vec4(texture2D(u_tex, v_uv).rgb, 1.0); }`;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    try {
+      prog = gl.createProgram();
+      gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(prog);
+      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    } catch (e) { failed = true; gl = null; return false; }
+    loc = {
+      rel: gl.getAttribLocation(prog, "a_rel"), uv: gl.getAttribLocation(prog, "a_uv"),
+      off: gl.getUniformLocation(prog, "u_off"), s: gl.getUniformLocation(prog, "u_s"),
+      size: gl.getUniformLocation(prog, "u_size"), tex: gl.getUniformLocation(prog, "u_tex")
+    };
+    return true;
+  }
+  function tileLon(x, n) { return x / n * 360 - 180; }
+  function tileLat(y, n) { return Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) / D; }
+  function mesh(z, x, y) {
+    const key = `${st.zone}/${z}/${x}/${y}`;
+    if (meshes.has(key)) return meshes.get(key);
+    const n = 2 ** z, cm = cmOf(st.zone);
+    const V = new Float32Array((N + 1) * (N + 1) * 4), ok = new Uint8Array((N + 1) * (N + 1));
+    let ox = null, oy = null;
+    const P = new Float64Array((N + 1) * (N + 1) * 2);
+    for (let j = 0; j <= N; j++) for (let i = 0; i <= N; i++) {
+      const k = j * (N + 1) + i;
+      const lon = tileLon(x + i / N, n), lat = tileLat(y + j / N, n);
+      if (Math.abs(dlon(lon, cm)) >= 89.5 || lat > -1) continue;
+      const p = UTM.fwd(lon, lat, cm);
+      if (!isFinite(p[0]) || !isFinite(p[1])) continue;
+      if (ox === null) { ox = p[0]; oy = p[1]; }
+      P[2 * k] = p[0]; P[2 * k + 1] = p[1]; ok[k] = 1;
+      V[4 * k] = p[0] - ox; V[4 * k + 1] = p[1] - oy; V[4 * k + 2] = i / N; V[4 * k + 3] = j / N;
+    }
+    const idx = [];
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const a = j * (N + 1) + i, b = a + 1, c = a + N + 1, d = c + 1;
+      if (ok[a] && ok[b] && ok[c] && ok[d]) idx.push(a, b, c, b, d, c);
+    }
+    let m = null;
+    if (idx.length) {
+      const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, V, gl.STATIC_DRAW);
+      const ibuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
+      m = { buf, ibuf, count: idx.length, ox, oy };
+    }
+    meshes.set(key, m);
+    return m;
+  }
+  function zoneChanged() {
+    if (!gl) { meshes.clear(); return; }
+    for (const m of meshes.values()) if (m) { gl.deleteBuffer(m.buf); gl.deleteBuffer(m.ibuf); }
+    meshes.clear();
+  }
+  function request(src, z, x, y) {
+    const key = `${src}/${z}/${x}/${y}`;
+    let t = tex.get(key);
+    if (t) { t.used = useTick; return t; }
+    t = { state: "queued", tex: null, used: useTick, z, x, y, src };
+    tex.set(key, t); queue.push(t); pump();
+    return t;
+  }
+  function pump() {
+    while (inflight < 10 && queue.length) {
+      const t = queue.shift();
+      if (t.src !== st.bg) { tex.delete(`${t.src}/${t.z}/${t.x}/${t.y}`); continue; }
+      inflight++; t.state = "loading";
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        inflight--; okCount++;
+        if (!gl) return;
+        t.tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        const pot = (img.width & (img.width - 1)) === 0 && (img.height & (img.height - 1)) === 0;
+        if (pot) gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, pot ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        t.state = "ready";
+        pump(); requestGL();
+      };
+      img.onerror = () => {
+        inflight--; errCount++; t.state = "error"; pump();
+        if (errCount >= 6 && okCount === 0) showStatus("Imagery tiles could not be loaded. This page's host may block map tiles; the GitHub Pages copy of the explorer can load them.");
+      };
+      img.src = SOURCES[t.src].url(t.z, t.x, t.y);
+    }
+  }
+  function evict() {
+    if (tex.size < 600) return;
+    const arr = [...tex.entries()].filter(([, t]) => t.state === "ready" || t.state === "error").sort((a, b) => a[1].used - b[1].used);
+    for (const [k, t] of arr.slice(0, tex.size - 450)) { if (t.tex) gl.deleteTexture(t.tex); tex.delete(k); }
+  }
+  function neededTiles(z) {
+    const n = 2 ** z, cm = cmOf(st.zone), out = new Map(), G = 24;
+    for (let j = 0; j <= G; j++) for (let i = 0; i <= G; i++) {
+      const X = wx(st.W * i / G), Y = wy(st.H * j / G);
+      const ll = UTM.inv(X, Y, cm);
+      if (!inDomain(ll[0], ll[1]) || ll[1] < -85.05) continue;
+      const lon = dlon(ll[0], 0);
+      const tx = Math.min(n - 1, Math.floor((lon + 180) / 360 * n));
+      const r = Math.log(Math.tan(Math.PI / 4 + ll[1] * D / 2));
+      const ty = Math.min(n - 1, Math.max(0, Math.floor((1 - r / Math.PI) / 2 * n)));
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const xx = ((tx + dx) % n + n) % n, yy = ty + dy;
+        if (yy < 0 || yy >= n) continue;
+        out.set(`${xx}/${yy}`, [xx, yy]);
+      }
+    }
+    return [...out.values()];
+  }
+  function targetZoom(src) {
+    const ll = UTM.inv(st.cx, st.cy, cmOf(st.zone));
+    const lat = Math.max(-85, Math.min(-1, ll[1]));
+    const z = Math.round(Math.log2(40075016.686 * Math.cos(lat * D) * st.s * st.dpr / 256 / 1.4));
+    return Math.max(1, Math.min(SOURCES[src].maxZ, z));
+  }
+  function drawTile(t, m) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.buf);
+    gl.vertexAttribPointer(loc.rel, 2, gl.FLOAT, false, 16, 0);
+    gl.vertexAttribPointer(loc.uv, 2, gl.FLOAT, false, 16, 8);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ibuf);
+    gl.bindTexture(gl.TEXTURE_2D, t.tex);
+    gl.uniform2f(loc.off, m.ox - st.cx, m.oy - st.cy);
+    gl.drawElements(gl.TRIANGLES, m.count, gl.UNSIGNED_SHORT, 0);
+  }
+  function draw() {
+    const src = st.bg;
+    if (src === "plain") { glc.hidden = true; return; }
+    if (!init()) { glc.hidden = true; showStatus("This browser has no WebGL, so imagery is unavailable."); return; }
+    glc.hidden = false;
+    const W = Math.round(st.W * st.dpr), H = Math.round(st.H * st.dpr);
+    if (glc.width !== W || glc.height !== H) { glc.width = W; glc.height = H; }
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.enableVertexAttribArray(loc.rel); gl.enableVertexAttribArray(loc.uv);
+    gl.uniform1f(loc.s, st.s); gl.uniform2f(loc.size, st.W, st.H); gl.uniform1i(loc.tex, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    useTick++;
+    const z = targetZoom(src);
+    const levels = z > 4 ? [Math.max(1, z - 4), z] : [z];
+    for (const zz of levels) {
+      const tiles = neededTiles(zz);
+      if (tiles.length > 400) continue;
+      for (const [x, y] of tiles) {
+        const t = request(src, zz, x, y);
+        if (t.state !== "ready") continue;
+        const m = mesh(zz, x, y);
+        if (m) drawTile(t, m);
+      }
+    }
+    evict();
+  }
+  function clearQueue() { queue.length = 0; }
+  return { draw, zoneChanged, clearQueue, get ok() { return okCount; } };
+})();
+
 // ---------------------------------------------------------------- render
-let needBase = true, frame = 0;
-function invalidate() { needBase = true; schedule(); }
+let needBase = true, needGL = true, frame = 0;
+function invalidate() { needBase = true; needGL = true; schedule(); }
+function requestGL() { needGL = true; schedule(); }
 function schedule() { if (!frame) frame = requestAnimationFrame(draw); }
+function ringPath(p, r) {
+  for (let i = 0; i < r.length; i += 2) { const x = sx(r[i]), y = sy(r[i + 1]); if (i === 0) p.moveTo(x, y); else p.lineTo(x, y); }
+  p.closePath();
+}
 function layerPath(layer, vb) {
   const p = new Path2D();
   for (const poly of layer) {
     const b = poly.bb;
     if (b[1] < vb.x0 || b[0] > vb.x1 || b[3] < vb.y0 || b[2] > vb.y1) continue;
-    for (const r of poly.rings) {
-      for (let i = 0; i < r.length; i += 2) {
-        const x = sx(r[i]), y = sy(r[i + 1]);
-        if (i === 0) p.moveTo(x, y); else p.lineTo(x, y);
-      }
-      p.closePath();
-    }
+    for (const r of poly.rings) ringPath(p, r);
   }
   return p;
 }
-function strokeLines(c, lines, color, width, dash) {
-  c.save(); c.strokeStyle = color; c.lineWidth = width; c.setLineDash(dash || []);
+function strokeLines(c, lines, color, width, dash, alpha) {
+  c.save(); c.strokeStyle = color; c.lineWidth = width; c.setLineDash(dash || []); c.globalAlpha = alpha == null ? 1 : alpha;
   c.beginPath();
   for (const r of lines) for (let i = 0; i < r.length; i += 2) { const x = sx(r[i]), y = sy(r[i + 1]); if (i === 0) c.moveTo(x, y); else c.lineTo(x, y); }
   c.stroke(); c.restore();
@@ -294,22 +547,33 @@ function satSum(S, x0, y0, x1, y1) {
   return S[y1 * w + x1] - S[y0 * w + x1] - S[y1 * w + x0] + S[y0 * w + x0];
 }
 
-let statusMsg = "";
+let statusMsg = "", statusSticky = "";
+function showStatus(msg) { statusSticky = msg; const el = $("status"); el.hidden = !msg; el.textContent = msg; }
 function renderBase() {
   const W = st.W, H = st.H, dpr = st.dpr;
   if (base.width !== Math.round(W * dpr) || base.height !== Math.round(H * dpr)) { base.width = Math.round(W * dpr); base.height = Math.round(H * dpr); }
   const c = bctx;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.globalAlpha = 1;
-  c.fillStyle = T.ocean; c.fillRect(0, 0, W, H);
+  c.clearRect(0, 0, W, H);
   const vb = vbounds();
+  const imageryOn = st.bg !== "plain";
 
-  strokeLines(c, st.lines.grat, T.grat, 1);
+  const dom = new Path2D(); ringPath(dom, st.lines.domain);
+  c.save();
+  c.clip(dom);
+
+  if (!imageryOn) { c.fillStyle = T.ocean; c.fillRect(0, 0, W, H); }
+  const fineOn = 111000 * st.s >= 30;
+  strokeLines(c, st.lines.grat, imageryOn ? T.surface : T.grat, 1, null, imageryOn ? 0.35 : 1);
+  if (fineOn) strokeLines(c, st.lines.gratFine, imageryOn ? T.surface : T.grat, 0.6, null, imageryOn ? 0.25 : 0.7);
 
   const shelfP = layerPath(st.layers.shelf, vb), landP = layerPath(st.layers.land, vb);
-  c.fillStyle = T.shelf; c.fill(shelfP, "evenodd"); c.strokeStyle = T.shelf; c.lineWidth = 1; c.stroke(shelfP);
-  c.fillStyle = hatch; c.fill(shelfP, "evenodd");
-  c.fillStyle = T.land; c.fill(landP, "evenodd"); c.strokeStyle = T.land; c.lineWidth = 1; c.stroke(landP);
+  if (!imageryOn) {
+    c.fillStyle = T.shelf; c.fill(shelfP, "evenodd"); c.strokeStyle = T.shelf; c.lineWidth = 1; c.stroke(shelfP);
+    c.fillStyle = hatch; c.fill(shelfP, "evenodd");
+    c.fillStyle = T.land; c.fill(landP, "evenodd"); c.strokeStyle = T.land; c.lineWidth = 1; c.stroke(landP);
+  }
 
   // grid domain: negative indices do not exist
   const gx = sx(st.ox), gy = sy(st.oy);
@@ -332,8 +596,8 @@ function renderBase() {
       else if (satSum(satS, a, t, b, u) > 0) ps.rect(sx(x0), sy(y1), tpx, tpx);
     }
     c.save();
-    c.globalAlpha = 0.34; c.fillStyle = T["t-land"]; c.fill(pl);
-    c.globalAlpha = 0.24; c.fillStyle = T["t-shelf"]; c.fill(ps);
+    c.globalAlpha = imageryOn ? 0.22 : 0.34; c.fillStyle = T["t-land"]; c.fill(pl);
+    c.globalAlpha = imageryOn ? 0.18 : 0.24; c.fillStyle = T["t-shelf"]; c.fill(ps);
     c.restore();
   } else if (vr.n > 0) {
     statusMsg = `Zoom in to see R${pad4(ar)} tiles (${tpx < 0.1 ? tpx.toFixed(3) : tpx.toFixed(1)} px wide here)`;
@@ -352,11 +616,12 @@ function renderBase() {
   if (setHere.length) {
     const p = new Path2D();
     for (const t of setHere) rectPath(p, t.col, t.row, t.res, 2);
-    c.save(); c.globalAlpha = 0.2; c.fillStyle = T.accent; c.fill(p); c.globalAlpha = 1;
+    c.save(); c.globalAlpha = imageryOn ? 0.12 : 0.2; c.fillStyle = T.accent; c.fill(p); c.globalAlpha = 1;
     c.strokeStyle = T.accent; c.lineWidth = 1.6; c.stroke(p); c.restore();
   }
 
   // lattices, coarse to fine, thicker when coarser
+  const gridCol = imageryOn ? T.surface : T.grid;
   const sorted = [...st.resList].sort((a, b) => b - a);
   const nres = sorted.length;
   sorted.forEach((res, rank) => {
@@ -366,11 +631,11 @@ function renderBase() {
     if ((vr2.c1 - vr2.c0) + (vr2.r1 - vr2.r0) > 3000) return;
     const lw = nres > 1 ? 1.9 - 1.3 * rank / (nres - 1) : 1.2;
     c.save();
-    c.strokeStyle = T.grid; c.lineWidth = lw;
-    c.globalAlpha = Math.min(0.55, 0.1 + (tp - 7) / 120);
+    c.strokeStyle = gridCol; c.lineWidth = lw;
+    c.globalAlpha = Math.min(imageryOn ? 0.7 : 0.55, 0.1 + (tp - 7) / 120);
     c.beginPath();
-    const yTop = 0, yBot = Math.min(H, gy), xL = Math.max(0, gx);
-    for (let col = vr2.c0; col <= vr2.c1 + 1; col++) { const x = sx(st.ox + col * t); if (x >= xL - 0.5) { c.moveTo(x, yTop); c.lineTo(x, yBot); } }
+    const yBot = Math.min(H, gy), xL = Math.max(0, gx);
+    for (let col = vr2.c0; col <= vr2.c1 + 1; col++) { const x = sx(st.ox + col * t); if (x >= xL - 0.5) { c.moveTo(x, 0); c.lineTo(x, yBot); } }
     for (let row = vr2.r0; row <= vr2.r1 + 1; row++) { const y = sy(st.oy + row * t); if (y <= gy + 0.5) { c.moveTo(xL, y); c.lineTo(W, y); } }
     c.stroke(); c.restore();
   });
@@ -381,23 +646,26 @@ function renderBase() {
     const x0 = Math.max(Math.floor((vb.x0 - st.ox) / ar), 0), x1 = Math.floor((vb.x1 - st.ox) / ar);
     const y0 = Math.max(Math.floor((vb.y0 - st.oy) / ar), 0), y1 = Math.floor((vb.y1 - st.oy) / ar);
     if ((x1 - x0) + (y1 - y0) < 800) {
-      c.save(); c.strokeStyle = T.grid; c.globalAlpha = 0.12; c.lineWidth = 0.5; c.beginPath();
+      c.save(); c.strokeStyle = gridCol; c.globalAlpha = 0.14; c.lineWidth = 0.5; c.beginPath();
       for (let i = x0; i <= x1 + 1; i++) { const x = sx(st.ox + i * ar); c.moveTo(x, 0); c.lineTo(x, Math.min(H, gy)); }
       for (let j = y0; j <= y1 + 1; j++) { const y = sy(st.oy + j * ar); c.moveTo(Math.max(0, gx), y); c.lineTo(W, y); }
       c.stroke(); c.restore();
     }
   }
 
-  strokeLines(c, st.lines.zone, T.muted, 1.5, [8, 5]);
+  strokeLines(c, st.lines.zone, imageryOn ? T.surface : T.muted, 1.5, [8, 5]);
   strokeLines(c, st.lines.aat, T.accent, 1.6);
 
   // col,row labels
   if (tpx >= 110 && vr.n <= 500) {
     c.save(); c.font = "11px " + getComputedStyle(document.body).getPropertyValue("--f-mono");
-    c.fillStyle = T.muted; c.textBaseline = "top";
+    c.textBaseline = "top";
     for (let col = vr.c0; col <= vr.c1; col++) for (let row = vr.r0; row <= vr.r1; row++) {
       const [x0, , , y1] = tileExt(col, row, ar);
-      c.fillText(`${pad4(col)},${pad4(row)}`, sx(x0) + 4, sy(y1) + 4);
+      const lab = `${pad4(col)},${pad4(row)}`;
+      if (imageryOn) { c.fillStyle = T.ink; c.globalAlpha = 0.55; c.fillRect(sx(x0) + 2, sy(y1) + 2, 72, 15); c.globalAlpha = 1; c.fillStyle = T.surface; }
+      else c.fillStyle = T.muted;
+      c.fillText(lab, sx(x0) + 4, sy(y1) + 4);
     }
     c.restore();
   }
@@ -405,11 +673,17 @@ function renderBase() {
   // inspected tile
   if (st.inspect && st.inspect.zone === st.zone) {
     const t = st.inspect, p = new Path2D(); rectPath(p, t.col, t.row, t.res, 4);
-    c.save(); c.strokeStyle = T.ink; c.lineWidth = 2.5; c.stroke(p); c.restore();
+    c.save(); c.strokeStyle = imageryOn ? T.accent : T.ink; c.lineWidth = 2.5; c.stroke(p); c.restore();
   }
+  c.restore();   // end domain clip
+
+  // outside the view domain
+  const out = new Path2D(); out.rect(0, 0, W, H); ringPath(out, st.lines.domain);
+  c.save(); c.fillStyle = T.bg; c.fill(out, "evenodd"); c.restore();
+  c.save(); c.strokeStyle = T.muted; c.lineWidth = 1; c.globalAlpha = 0.8; c.stroke(dom); c.restore();
 
   // status + scale
-  const el = $("status"); el.hidden = !statusMsg; el.textContent = statusMsg;
+  const el = $("status"), msg = statusSticky || statusMsg; el.hidden = !msg; el.textContent = msg;
   const target = 110 / st.s, pow = Math.pow(10, Math.floor(Math.log10(target)));
   const nice = [1, 2, 5, 10].map(k => k * pow).filter(v => v <= target).pop();
   $("scale-bar").style.width = (nice * st.s).toFixed(1) + "px";
@@ -420,6 +694,7 @@ function draw() {
   frame = 0;
   if (!st.W) return;
   if (needBase) { renderBase(); needBase = false; }
+  if (needGL) { imagery.draw(); needGL = false; }
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(base, 0, 0);
@@ -434,8 +709,6 @@ function draw() {
 }
 
 // ---------------------------------------------------------------- panels
-function esc(s) { return String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch])); }
-
 function renderScheme() {
   $("px600").setAttribute("aria-pressed", String(st.px === 600));
   $("px720").setAttribute("aria-pressed", String(st.px === 720));
@@ -466,8 +739,8 @@ function renderInfo() {
   const [x0, x1, y0, y1] = tileExt(t.col, t.row, t.res);
   const cm = cmOf(t.zone);
   const cen = UTM.inv((x0 + x1) / 2, (y0 + y1) / 2, cm);
-  const off = Math.abs(cen[0] - cm) - 3;
-  const surf = t.zone === st.zone ? surfaceOf(t.col, t.row, t.res) : null;
+  const off = Math.abs(dlon(cen[0], cm)) - 3;
+  const surf = t.zone === st.zone && !coastLoading() ? surfaceOf(t.col, t.row, t.res) : null;
   const surfLab = { land: "touches land", shelf: "touches ice shelf only", ocean: "open water" };
   const parents = [], children = [];
   for (const q of st.resList) {
@@ -574,8 +847,10 @@ function updateHover(x, y) {
   const ll = UTM.inv(X, Y, cmOf(st.zone));
   const [col, row] = tileAt(X, Y, st.active);
   st.hover = [col, row];
-  const ok = col >= 0 && row >= 0;
-  $("readout").innerHTML = `${fmtLL(ll[0], ll[1])}<br>x ${X.toFixed(0)}  y ${Y.toFixed(0)}  ${zid(st.zone)}<br>${ok ? tileId(st.zone, st.active, col, row) : "outside grid domain"}`;
+  const ok = col >= 0 && row >= 0, inside = inDomain(ll[0], ll[1]);
+  $("readout").innerHTML = inside
+    ? `${fmtLL(ll[0], ll[1])}<br>x ${X.toFixed(0)}  y ${Y.toFixed(0)}  ${zid(st.zone)}<br>${ok ? tileId(st.zone, st.active, col, row) : "outside grid domain"}`
+    : `Outside the view for zone ${zid(st.zone)}<br>(scale error over ${Math.round((st.kmax - 1) * 100)}% or north of 45&deg;S)`;
   schedule();
 }
 function zoomAt(x, y, k) {
@@ -590,7 +865,7 @@ canvas.addEventListener("pointerdown", e => {
   if (ptrs.size === 1) drag = { x: p[0], y: p[1], cx: st.cx, cy: st.cy, moved: false, shift: e.shiftKey || e.metaKey || e.ctrlKey };
   if (ptrs.size === 2) {
     const [a, b] = [...ptrs.values()];
-    pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: st.s, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2, X: wx((a[0] + b[0]) / 2), Y: wy((a[1] + b[1]) / 2) };
+    pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: st.s, X: wx((a[0] + b[0]) / 2), Y: wy((a[1] + b[1]) / 2) };
     drag = null;
   }
 });
@@ -643,15 +918,27 @@ $("zout").onclick = () => zoomAt(st.W / 2, st.H / 2, 1 / 1.6);
 
 // ---------------------------------------------------------------- controls
 const zsel = $("zone");
-for (let z = 36; z <= 60; z++) {
-  const cm = cmOf(z);
-  zsel.insertAdjacentHTML("beforeend", `<option value="${z}">${zid(z)} (${cm - 3} to ${cm + 3}&deg;E)</option>`);
+for (let z = 1; z <= 60; z++) {
+  const cm = cmOf(z), a = dlon(cm - 3, 0), b = dlon(cm + 3, 0);
+  const f = v => `${Math.abs(v)}&deg;${v >= 0 ? "E" : "W"}`;
+  zsel.insertAdjacentHTML("beforeend", `<option value="${z}">${zid(z)} (${f(a)} to ${f(b)})</option>`);
 }
 zsel.onchange = () => {
   const ll = UTM.inv(st.cx, st.cy, cmOf(st.zone));
   const z = parseInt(zsel.value, 10);
   setZone(z);
   const p = UTM.fwd(ll[0], ll[1], cmOf(z)); st.cx = p[0]; st.cy = p[1];
+  invalidate();
+};
+const ksel = $("kmax");
+ksel.innerHTML = SCALE_OPTS.map(k => `<option value="${k}">under ${Math.round((k - 1) * 100)}% scale error</option>`).join("");
+ksel.value = String(st.kmax);
+ksel.onchange = () => { st.kmax = parseFloat(ksel.value); buildLines(); invalidate(); };
+$("bg").onchange = () => {
+  st.bg = $("bg").value;
+  imagery.clearQueue(); showStatus("");
+  const a = $("attrib");
+  if (st.bg === "plain") { a.hidden = true; } else { a.hidden = false; a.innerHTML = SOURCES[st.bg].attrib; }
   invalidate();
 };
 function specChanged(what) {
@@ -700,7 +987,7 @@ $("goto-form").addEventListener("submit", e => {
   const m = v.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
   if (m) {
     const lon = parseFloat(m[1]), lat = parseFloat(m[2]);
-    if (lat > -40 || lat < -84 || lon < -180 || lon > 180) { err.textContent = "Use longitude, latitude with latitude between -84 and -40."; err.hidden = false; return; }
+    if (lat > LAT_CAP || lat < -90 || lon < -180 || lon > 360) { err.textContent = "Use longitude, latitude with latitude between -90 and -45."; err.hidden = false; return; }
     centreOn(lon, lat, 60);
     return;
   }
@@ -740,12 +1027,8 @@ let booted = false;
 function resize() {
   const r = $("mapwrap").getBoundingClientRect();
   st.dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const W = Math.max(1, r.width), H = Math.max(1, r.height);
-  if (booted) {
-    // keep the centre; keep the scale
-  }
-  st.W = W; st.H = H;
-  canvas.width = Math.round(W * st.dpr); canvas.height = Math.round(H * st.dpr);
+  st.W = Math.max(1, r.width); st.H = Math.max(1, r.height);
+  canvas.width = Math.round(st.W * st.dpr); canvas.height = Math.round(st.H * st.dpr);
   if (!booted) { booted = true; boot(); }
   invalidate();
 }
@@ -753,15 +1036,25 @@ function boot() {
   readTokens();
   renderScheme();
   const p = PRESETS[0];
-  setZone(43);
+  st.zone = 43; buildLines(); $("zone").value = "43";
   centreOn(p.lon, p.lat, p.km, 43);
-  // Example working state: Heard Island land tiles at 10 m, one tile inspected
-  const q0 = UTM.fwd(72.5, -53.25, cmOf(43)), q1 = UTM.fwd(73.95, -52.9, cmOf(43));
-  const r = addLandTiles(10, q0[0], q1[0], q0[1], q1[1], false);
-  renderSet(`Example: ${r.added} R0010 tiles touching Heard Island in the 720 px scheme. CGAZ does not include the McDonald Islands.`);
-  const c = UTM.fwd(73.5, -53.1, cmOf(43)), [col, row] = tileAt(c[0], c[1], 10);
-  st.inspect = { zone: 43, res: 10, col, row };
-  renderInfo();
+  fetch("coast/index.json")
+    .then(r => { if (!r.ok) throw new Error("coast/index.json: HTTP " + r.status); return r.json(); })
+    .then(idx => {
+      INDEX = idx; Q = idx.q || 10000;
+      // Example working state: Heard Island land tiles at 10 m, one tile inspected
+      onCoastIdle = () => {
+        const cm = cmOf(43);
+        const q0 = UTM.fwd(72.5, -53.25, cm), q1 = UTM.fwd(73.95, -52.9, cm);
+        const r = addLandTiles(10, q0[0], q1[0], q0[1], q1[1], false);
+        renderSet(`Example: ${r.added} R0010 tiles touching Heard Island in the 720 px scheme. CGAZ does not include the McDonald Islands.`);
+        const c = UTM.fwd(73.5, -53.1, cm), [col, row] = tileAt(c[0], c[1], 10);
+        st.inspect = { zone: 43, res: 10, col, row };
+        renderInfo();
+      };
+      setZone(43);
+    })
+    .catch(err => showStatus("Could not load coastline data (" + err.message + "). Serve this folder over HTTP rather than opening the file directly."));
 }
 new ResizeObserver(resize).observe($("mapwrap"));
-}
+})();

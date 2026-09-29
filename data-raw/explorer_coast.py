@@ -1,4 +1,4 @@
-"""Build explorer/coast.json: land and ice-shelf strips for the aatgrid explorer.
+"""Build explorer/coast/: land and ice-shelf strips for the aatgrid explorer.
 
 Inputs (pin these; `latest` and `master` move):
   - geoBoundaries CGAZ ADM0 parquet, from
@@ -11,23 +11,28 @@ Inputs (pin these; `latest` and `master` move):
     sha256 8f9bf62368695f5664b5fcd9bc0e2baea66da295aea014ce0e9cf510f209898d
   CGAZ Antarctica is grounded land only (no ice shelves), hence the second source.
 
-Output: lon 30..176, lat -84..-45, cut into 2-degree longitude strips so the
-page can project only the strips near a zone's central meridian. Strip edges
-are segmentized to 0.05 degree so they stay seamless after projection.
-Coordinates are unsimplified, quantised to 1e-4 degree and delta-encoded.
+Output: everything south of 45S, unsimplified, as 2-degree longitude strips
+grouped into 10-degree sector files (coast/s_<lon0>.json) plus coast/index.json.
+The page fetches only the sectors its current zone can show, so dense
+coastlines far from the view (southern Chile) cost nothing until needed.
+Strip edges are segmentized to 0.05 degree so they stay seamless after
+projection. Coordinates are quantised to 1e-4 degree and delta-encoded.
 
-Usage: python3 data-raw/explorer_coast.py CGAZ.parquet SHELVES.geojson explorer/coast.json
+Usage: python3 data-raw/explorer_coast.py CGAZ.parquet SHELVES.geojson explorer/coast
 Requires: shapely >= 2, pyarrow.
 """
 import json
+import os
 import sys
 
 import pyarrow.parquet as pq
 import shapely
 from shapely.geometry import Polygon, box, shape
 
-LON0, LON1, LAT0, LAT1, STEP = 30, 176, -84, -45, 2
-WINDOW = box(LON0, LAT0, LON1, LAT1)
+LAT0, LAT1 = -90, -45
+STRIP, SECTOR = 2, 10
+Q = 10000
+WINDOW = box(-180, LAT0, 180, LAT1)
 
 
 def cgaz_land(path):
@@ -35,7 +40,7 @@ def cgaz_land(path):
     bb = t.column("geometry_bbox").to_pylist()
     geoms = []
     for i, b in enumerate(bb):
-        if b["xmax"] < LON0 or b["xmin"] > LON1 or b["ymax"] < LAT0 or b["ymin"] > LAT1:
+        if b["ymin"] > LAT1:
             continue
         g = shapely.from_wkb(t.column("geometry")[i].as_py()).intersection(WINDOW)
         if not g.is_empty:
@@ -49,43 +54,54 @@ def ne_shelves(path):
     return shapely.union_all([g for g in geoms if not g.is_empty])
 
 
-def strips(geom, q):
-    out = []
-    for lon0 in range(LON0, LON1, STEP):
-        s = geom.intersection(box(lon0, LAT0, lon0 + STEP, LAT1))
-        if s.is_empty:
+def encode_strip(geom, lon0):
+    s = geom.intersection(box(lon0, LAT0, lon0 + STRIP, LAT1))
+    if s.is_empty:
+        return None
+    polys = [g for g in getattr(s, "geoms", [s]) if isinstance(g, Polygon) and g.area > 0]
+    enc = []
+    for p in polys:
+        p = shapely.segmentize(p, 0.05)
+        rings = []
+        for r in [p.exterior] + list(p.interiors):
+            flat, px, py = [], 0, 0
+            for x, y in list(r.coords)[:-1]:
+                ix, iy = round(x * Q), round(y * Q)
+                flat += [ix - px, iy - py]
+                px, py = ix, iy
+            rings.append(flat)
+        enc.append(rings)
+    return [lon0, enc] if enc else None
+
+
+def main(cgaz, shelves, dest):
+    os.makedirs(dest, exist_ok=True)
+    land, shelf = cgaz_land(cgaz), ne_shelves(shelves)
+    sectors = []
+    for s0 in range(-180, 180, SECTOR):
+        doc = {"land": [], "shelf": []}
+        for lon0 in range(s0, s0 + SECTOR, STRIP):
+            for key, g in (("land", land), ("shelf", shelf)):
+                e = encode_strip(g, lon0)
+                if e:
+                    doc[key].append(e)
+        if not doc["land"] and not doc["shelf"]:
             continue
-        polys = [g for g in getattr(s, "geoms", [s]) if isinstance(g, Polygon) and g.area > 0]
-        enc = []
-        for p in polys:
-            p = shapely.segmentize(p, 0.05)
-            rings = []
-            for r in [p.exterior] + list(p.interiors):
-                flat, px, py = [], 0, 0
-                for x, y in list(r.coords)[:-1]:
-                    ix, iy = round(x * q), round(y * q)
-                    flat += [ix - px, iy - py]
-                    px, py = ix, iy
-                rings.append(flat)
-            enc.append(rings)
-        out.append([lon0, enc])
-    return out
-
-
-def main(cgaz, shelves, dest, q=10000):
-    doc = {
-        "q": q,
-        "land": strips(cgaz_land(cgaz), q),
-        "shelf": strips(ne_shelves(shelves), q),
+        name = f"s_{s0}.json"
+        with open(os.path.join(dest, name), "w") as f:
+            json.dump(doc, f, separators=(",", ":"))
+        sectors.append({"lon0": s0, "lon1": s0 + SECTOR, "file": name,
+                        "bytes": os.path.getsize(os.path.join(dest, name))})
+    index = {
+        "q": Q, "lat0": LAT0, "lat1": LAT1, "sectors": sectors,
         "source": {
-            "land": "geoBoundaries CGAZ ADM0 (see data-raw/explorer_coast.py for the pinned file)",
+            "land": "geoBoundaries CGAZ ADM0 (pinned in data-raw/explorer_coast.py)",
             "shelf": "Natural Earth 10m antarctic_ice_shelves_polys",
-            "window": "lon 30..176, lat -84..-45, 2-degree strips",
             "quantisation": "1e-4 degree, delta-encoded integers",
         },
     }
-    with open(dest, "w") as f:
-        json.dump(doc, f, separators=(",", ":"))
+    with open(os.path.join(dest, "index.json"), "w") as f:
+        json.dump(index, f, separators=(",", ":"))
 
 
 if __name__ == "__main__":

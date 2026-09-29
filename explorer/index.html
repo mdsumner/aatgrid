@@ -90,14 +90,18 @@ dl.kv dd { margin: 0; font-family: var(--f-mono); font-size: 12px; font-variant-
 .pill.land { color: var(--t-land); } .pill.shelf { color: var(--t-shelf); } .pill.ocean { color: var(--muted); } .pill.warn { color: var(--accent); }
 .count { font-family: var(--f-mono); font-size: 13px; }
 .map { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--ocean); }
-canvas#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+canvas#map, canvas#gl { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+canvas#map { touch-action: none; cursor: crosshair; }
+canvas#gl { pointer-events: none; }
 .ov { position: absolute; pointer-events: none; font-size: 12px; }
 .legend { top: 12px; right: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; display: grid; grid-template-columns: 14px auto; gap: 4px 8px; align-items: center; max-width: 230px; opacity: 0.94; }
 .sw { width: 14px; height: 10px; border-radius: 1px; border: 1px solid transparent; }
 .legend .foot { grid-column: 1 / -1; color: var(--muted); font-size: 11px; margin-top: 2px; }
 .status { top: 12px; left: 12px; background: var(--ink); color: var(--surface); border-radius: 4px; padding: 4px 9px; font-size: 13px; }
 .readout { left: 12px; bottom: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 9px; font-family: var(--f-mono); font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
-.scale { right: 12px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-family: var(--f-mono); font-size: 11.5px; color: var(--ink); }
+.attrib { right: 12px; bottom: 50px; max-width: min(420px, 70%); text-align: right; font-size: 11px; color: var(--ink); background: var(--surface); opacity: 0.9; padding: 2px 6px; border-radius: 3px; pointer-events: auto; }
+.attrib a { color: inherit; }
+.scale { right: 12px; bottom: 12px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-family: var(--f-mono); font-size: 11.5px; color: var(--ink); background: var(--surface); opacity: 0.92; padding: 3px 7px 5px; border-radius: 3px; }
 .scale i { display: block; height: 6px; border: 1.5px solid var(--ink); border-top: 0; }
 .zoom { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 4px; }
 .zoom button { width: 32px; height: 32px; padding: 0; font-size: 18px; background: var(--surface); }
@@ -118,7 +122,7 @@ canvas#map { display: block; width: 100%; height: 100%; touch-action: none; curs
   <aside class="panel" aria-label="Controls">
     <div>
       <div class="brand"><b>aatgrid</b><span>explorer</span></div>
-      <p class="lede">The aatgrid tile lattice on UTM south zones, over the Australian Antarctic Territory coast (CGAZ land, Natural Earth ice shelves). Drag to pan, scroll or pinch to zoom, click a tile to inspect it, shift-click to add it to the set.</p>
+      <p class="lede">The aatgrid tile lattice on UTM south zones, over the Australian Antarctic Territory coast (CGAZ land, Natural Earth ice shelves). Each zone shows the far south where its projection stays accurate. Drag to pan, scroll or pinch to zoom, click a tile to inspect it, shift-click to add it to the set.</p>
     </div>
 
     <section aria-labelledby="h-go">
@@ -134,6 +138,8 @@ canvas#map { display: block; width: 100%; height: 100%; touch-action: none; curs
     <section aria-labelledby="h-scheme">
       <h2 id="h-scheme">Scheme</h2>
       <div class="row"><label for="zone">UTM zone</label><select id="zone" class="grow"></select></div>
+      <div class="row"><label for="kmax">Show area</label><select id="kmax" class="grow"></select></div>
+      <div class="row"><label for="bg">Background</label><select id="bg" class="grow"><option value="plain">Plain</option><option value="esri">Esri World Imagery</option><option value="osm">OpenStreetMap</option></select></div>
       <div class="row"><label>Tile pixels</label>
         <span class="seg" role="group" aria-label="Pixels per tile">
           <button type="button" data-px="600" id="px600">600 (v0.2.0)</button><button type="button" data-px="720" id="px720">720</button>
@@ -178,6 +184,7 @@ canvas#map { display: block; width: 100%; height: 100%; touch-action: none; curs
   </aside>
 
   <main class="map" id="mapwrap">
+    <canvas id="gl" hidden aria-hidden="true"></canvas>
     <canvas id="map" tabindex="0" aria-label="Map of aatgrid tiles. Arrow keys pan, plus and minus zoom."></canvas>
     <div class="ov status" id="status" hidden></div>
     <div class="ov legend" id="legend">
@@ -189,9 +196,12 @@ canvas#map { display: block; width: 100%; height: 100%; touch-action: none; curs
       <span class="sw" style="border:1.5px dashed var(--hl)"></span><span>Compared ids</span>
       <span class="sw" style="border-top:2px dashed var(--muted);height:0"></span><span>Zone edge</span>
       <span class="sw" style="border-top:2px solid var(--accent);height:0"></span><span>AAT sector</span>
+      <span class="sw" style="background:var(--bg);border-color:var(--muted)"></span><span>Beyond this zone's view</span>
+      <span class="sw" style="background:var(--void);opacity:.35"></span><span>No grid (negative index)</span>
       <span class="foot">Tints are sampled at screen resolution; the tile set uses exact geometry.</span>
     </div>
     <div class="ov readout" id="readout">Move over the map</div>
+    <div class="ov attrib" id="attrib" hidden></div>
     <div class="ov scale" id="scale"><span id="scale-lab"></span><i id="scale-bar"></i></div>
     <div class="zoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">&minus;</button></div>
   </main>
