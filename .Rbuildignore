@@ -12,4 +12,5 @@
 ^CLAUDE.md$
 ^\.posit/assistant$
 ^\.posit$
+^explorer$
 ^data-raw$

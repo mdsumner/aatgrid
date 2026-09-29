@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="The aatgrid tile lattice on UTM south zones over the Australian Antarctic Territory coast.">
+<title>aatgrid Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: operator's chart table. A narrow instrument panel on the left, the UTM sheet filling the rest; on phones the sheet sits on top. */
+:root {
+  --bg: #EDF1F3;
+  --surface: #F8FAFB;
+  --ink: #15212A;
+  --muted: #56666F;
+  --rule: #D0D9DE;
+  --ocean: #D3DFE6;
+  --land: #FAF9F4;
+  --shelf: #E4ECF1;
+  --shelf-edge: #8FA7B7;
+  --grid: #18262F;
+  --grat: #B4C4CE;
+  --accent: #D94F24;
+  --accent-ink: #FFFFFF;
+  --t-land: #138086;
+  --t-shelf: #4F93BD;
+  --hl: #9E3483;
+  --void: #6F7F88;
+  --f-ui: "Barlow Semi Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1519; --surface: #141D23; --ink: #E2E9ED; --muted: #93A3AC; --rule: #29353D;
+    --ocean: #0A1318; --land: #2A343B; --shelf: #1B2830; --shelf-edge: #4E6B7E;
+    --grid: #CFDAE0; --grat: #1F2C34; --accent: #FF7A4C; --accent-ink: #1B0D07;
+    --t-land: #34B3AE; --t-shelf: #5A96BA; --hl: #E27CC6; --void: #0B0F12;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1519; --surface: #141D23; --ink: #E2E9ED; --muted: #93A3AC; --rule: #29353D;
+  --ocean: #0A1318; --land: #2A343B; --shelf: #1B2830; --shelf-edge: #4E6B7E;
+  --grid: #CFDAE0; --grat: #1F2C34; --accent: #FF7A4C; --accent-ink: #1B0D07;
+  --t-land: #34B3AE; --t-shelf: #5A96BA; --hl: #E27CC6; --void: #0B0F12;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-ui); font-size: 15px; line-height: 1.4; }
+* { box-sizing: border-box; }
+.app { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100%; }
+.panel { overflow-y: auto; border-right: 1px solid var(--rule); background: var(--surface); padding: 16px 16px 28px; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand b { font-family: var(--f-mono); font-weight: 500; font-size: 20px; letter-spacing: -0.01em; }
+.brand span { font-size: 18px; color: var(--muted); }
+.lede { color: var(--muted); font-size: 14px; margin: 4px 0 0; text-wrap: pretty; }
+section { display: flex; flex-direction: column; gap: 10px; }
+h2 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule); padding-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button, .chip { font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 4px 9px; cursor: pointer; line-height: 1.3; }
+button:hover { border-color: var(--muted); }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row > label { font-size: 13px; color: var(--muted); min-width: 74px; }
+input[type="text"], input[type="number"], select, textarea { font-family: var(--f-mono); font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; padding: 5px 7px; min-width: 0; }
+input[type="number"] { width: 96px; }
+.grow { flex: 1 1 140px; }
+textarea { width: 100%; resize: vertical; min-height: 64px; line-height: 1.45; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 4px 0 0 4px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 4px 4px 0; }
+.note { font-size: 13px; color: var(--muted); margin: 0; text-wrap: pretty; }
+.note code, .mono { font-family: var(--f-mono); font-size: 12px; }
+.err { font-size: 13px; color: var(--accent); margin: 0; }
+table.nest { border-collapse: collapse; font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; width: 100%; }
+table.nest th { text-align: left; font-family: var(--f-ui); font-weight: 500; font-size: 12px; color: var(--muted); padding: 2px 6px 4px 0; }
+table.nest td { padding: 2px 6px 2px 0; border-top: 1px solid var(--rule); }
+.tid { font-family: var(--f-mono); font-size: 15px; font-weight: 500; word-break: break-all; }
+dl.kv { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 5px 10px; margin: 0; font-size: 13px; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; font-family: var(--f-mono); font-size: 12px; font-variant-numeric: tabular-nums; word-break: break-word; }
+.pill { display: inline-block; font-family: var(--f-ui); font-size: 12px; font-weight: 500; padding: 1px 7px; border-radius: 10px; border: 1px solid currentColor; }
+.pill.land { color: var(--t-land); } .pill.shelf { color: var(--t-shelf); } .pill.ocean { color: var(--muted); } .pill.warn { color: var(--accent); }
+.count { font-family: var(--f-mono); font-size: 13px; }
+.map { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--ocean); }
+canvas#map { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+.ov { position: absolute; pointer-events: none; font-size: 12px; }
+.legend { top: 12px; right: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 8px 10px; display: grid; grid-template-columns: 14px auto; gap: 4px 8px; align-items: center; max-width: 230px; opacity: 0.94; }
+.sw { width: 14px; height: 10px; border-radius: 1px; border: 1px solid transparent; }
+.legend .foot { grid-column: 1 / -1; color: var(--muted); font-size: 11px; margin-top: 2px; }
+.status { top: 12px; left: 12px; background: var(--ink); color: var(--surface); border-radius: 4px; padding: 4px 9px; font-size: 13px; }
+.readout { left: 12px; bottom: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; padding: 6px 9px; font-family: var(--f-mono); font-size: 11.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.scale { right: 12px; bottom: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-family: var(--f-mono); font-size: 11.5px; color: var(--ink); }
+.scale i { display: block; height: 6px; border: 1.5px solid var(--ink); border-top: 0; }
+.zoom { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 4px; }
+.zoom button { width: 32px; height: 32px; padding: 0; font-size: 18px; background: var(--surface); }
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  .app { grid-template-columns: 1fr; grid-template-rows: 62svh auto; height: auto; }
+  .map { order: -1; }
+  .panel { border-right: 0; border-top: 1px solid var(--rule); overflow: visible; }
+  .legend { display: none; }
+  .readout { font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<div class="app">
+  <aside class="panel" aria-label="Controls">
+    <div>
+      <div class="brand"><b>aatgrid</b><span>explorer</span></div>
+      <p class="lede">The aatgrid tile lattice on UTM south zones, over the Australian Antarctic Territory coast (CGAZ land, Natural Earth ice shelves). Drag to pan, scroll or pinch to zoom, click a tile to inspect it, shift-click to add it to the set.</p>
+    </div>
+
+    <section aria-labelledby="h-go">
+      <h2 id="h-go">Go to</h2>
+      <div class="chips" id="presets"></div>
+      <form class="row" id="goto-form">
+        <input type="text" id="goto" class="grow" placeholder="73.5, -53.1  or  43S_R0010_0033_0571" aria-label="Longitude, latitude or tile id">
+        <button type="submit">Go</button>
+      </form>
+      <p class="err" id="goto-err" hidden></p>
+    </section>
+
+    <section aria-labelledby="h-scheme">
+      <h2 id="h-scheme">Scheme</h2>
+      <div class="row"><label for="zone">UTM zone</label><select id="zone" class="grow"></select></div>
+      <div class="row"><label>Tile pixels</label>
+        <span class="seg" role="group" aria-label="Pixels per tile">
+          <button type="button" data-px="600" id="px600">600 (v0.2.0)</button><button type="button" data-px="720" id="px720">720</button>
+        </span>
+        <input type="number" id="px" min="16" step="1" aria-label="Custom pixels per tile">
+      </div>
+      <p class="note" id="px-note"></p>
+      <div class="row"><label for="ox">Origin</label><input type="number" id="ox" step="1" aria-label="Origin easting"><input type="number" id="oy" step="1" aria-label="Origin northing"></div>
+      <div class="row"><label for="res">Resolutions</label><input type="text" id="res" class="grow" aria-label="Resolutions in metres, comma separated"></div>
+      <div class="row"><label for="active">Active</label><select id="active" class="grow"></select></div>
+      <table class="nest" id="nest"></table>
+    </section>
+
+    <section aria-labelledby="h-tile">
+      <h2 id="h-tile">Tile</h2>
+      <div id="info"><p class="note">Click a tile on the map.</p></div>
+    </section>
+
+    <section aria-labelledby="h-set">
+      <h2 id="h-set">Tile set</h2>
+      <div class="row"><span class="count" id="set-count">0 tiles</span></div>
+      <div class="row">
+        <button type="button" id="add-land">Add land tiles in view</button>
+        <label class="note"><input type="checkbox" id="incl-shelf"> incl. ice shelf</label>
+      </div>
+      <div class="row">
+        <button type="button" id="grow">Grow by 1 ring</button>
+        <button type="button" id="clear">Clear</button>
+        <button type="button" id="copy-ids">Copy ids</button>
+        <button type="button" id="copy-csv">Copy CSV</button>
+      </div>
+      <p class="note" id="set-msg" hidden></p>
+      <textarea id="set-list" readonly rows="5" aria-label="Tile ids in the set"></textarea>
+    </section>
+
+    <section aria-labelledby="h-cmp">
+      <h2 id="h-cmp">Compare ids</h2>
+      <textarea id="paste" rows="4" placeholder="Paste tile ids, e.g. from registry/tiles.parquet or the bucket inventory" aria-label="Tile ids to compare"></textarea>
+      <div class="row"><button type="button" id="show-ids">Show on map</button><button type="button" id="go-ids">Go to them</button></div>
+      <p class="note" id="cmp-msg">Ids do not record tile size or origin, so they are drawn with the scheme above. Legacy L1/L2 ids read as 60 m and 10 m.</p>
+    </section>
+  </aside>
+
+  <main class="map" id="mapwrap">
+    <canvas id="map" tabindex="0" aria-label="Map of aatgrid tiles. Arrow keys pan, plus and minus zoom."></canvas>
+    <div class="ov status" id="status" hidden></div>
+    <div class="ov legend" id="legend">
+      <span class="sw" style="background:var(--land);border-color:var(--rule)"></span><span>Land (CGAZ)</span>
+      <span class="sw" style="background:var(--shelf);border-color:var(--shelf-edge)"></span><span>Ice shelf (NE 10 m)</span>
+      <span class="sw" style="background:var(--t-land);opacity:.55"></span><span>Tile touches land</span>
+      <span class="sw" style="background:var(--t-shelf);opacity:.4"></span><span>Touches ice shelf only</span>
+      <span class="sw" style="background:var(--accent);opacity:.6"></span><span>In tile set</span>
+      <span class="sw" style="border:1.5px dashed var(--hl)"></span><span>Compared ids</span>
+      <span class="sw" style="border-top:2px dashed var(--muted);height:0"></span><span>Zone edge</span>
+      <span class="sw" style="border-top:2px solid var(--accent);height:0"></span><span>AAT sector</span>
+      <span class="foot">Tints are sampled at screen resolution; the tile set uses exact geometry.</span>
+    </div>
+    <div class="ov readout" id="readout">Move over the map</div>
+    <div class="ov scale" id="scale"><span id="scale-lab"></span><i id="scale-bar"></i></div>
+    <div class="zoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">&minus;</button></div>
+  </main>
+</div>
+
+<script src="utm.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
