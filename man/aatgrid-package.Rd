@@ -8,7 +8,7 @@
 \description{
 The aatgrid package provides tools for working with a standardized grid
 system covering the Australian Antarctic Territory. The grid is
-parametric: an origin, a fixed 600-pixel tile, and a resolution, so
+parametric: an origin, a fixed 720-pixel tile, and a resolution, so
 tile size is always derived (see \link{GRID_SPEC}). "L1" (60 m) and "L2"
 (10 m) are named instances of this, kept as convenience aliases.
 \itemize{
@@ -42,11 +42,6 @@ Useful links:
 }
 \author{
 \strong{Maintainer}: Michael Sumner \email{mdsumner@gmail.com} [copyright holder]
-
-Authors:
-\itemize{
-  \item Michael Sumner \email{mdsumner@gmail.com} [copyright holder]
-}
 
 }
 \keyword{internal}

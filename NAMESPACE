@@ -36,21 +36,19 @@ export(tiles_for_extent2)
 export(tiles_to_mgrs)
 export(utm_to_tile_index)
 importFrom(sds,CGAZ)
-importFrom(terra,
-  "res<-",
-  "values<-",
-  buffer,
-  crds,
-  crs,
-  ext,
-  project,
-  rast,
-  rasterize,
-  relate,
-  res,
-  rowColFromCell,
-  values,
-  vect,
-  writeVector
-)
+importFrom(terra,"res<-")
+importFrom(terra,"values<-")
+importFrom(terra,buffer)
+importFrom(terra,crds)
+importFrom(terra,crs)
+importFrom(terra,ext)
+importFrom(terra,project)
+importFrom(terra,rast)
+importFrom(terra,rasterize)
+importFrom(terra,relate)
+importFrom(terra,res)
+importFrom(terra,rowColFromCell)
+importFrom(terra,values)
+importFrom(terra,vect)
+importFrom(terra,writeVector)
 importFrom(utils,write.csv)

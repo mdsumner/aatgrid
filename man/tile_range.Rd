@@ -21,7 +21,7 @@ extent = the tile-aligned c(xmin, xmax, ymin, ymax)
 The only alignment door: converts an extent to the inclusive range of
 tile indices it touches, and returns the implied tile-aligned extent.
 Never snap extents with generic tools (the lattice origin is
-GRID_ORIGIN, not zero: 140000 mod 36000 = 32000).
+GRID_ORIGIN, not zero: 140000 mod 43200 = 10400).
 }
 \details{
 Tiles are right-open ([min, max)): an extent edge lying exactly on a

@@ -4,26 +4,26 @@
 # (wk_bbox: 72.57784 -53.19276 73.70948 -52.91414, EPSG:4326).
 #
 # The grid is parametric: an origin (GRID_ORIGIN), a fixed pixel count per
-# tile (PIXELS_PER_TILE = 600), and a resolution. Tile size is always
-# derived: tile_size(res) = 600 * res. "L1"/"L2" are just named instances
+# tile (PIXELS_PER_TILE = 720), and a resolution. Tile size is always
+# derived: tile_size(res) = 720 * res. "L1"/"L2" are just named instances
 # at 60 m / 10 m, kept as convenience aliases (see LEVEL_RESOLUTIONS) and
 # as a parse-time alias for old ids -- they are not independent parameters.
 
 test_that("grid spec constants are self-consistent", {
   ## tile size is derived from resolution, not chosen independently
-  expect_equal(tile_size(60), 600 * 60)
-  expect_equal(tile_size(10), 600 * 10)
+  expect_equal(tile_size(60), 720 * 60)
+  expect_equal(tile_size(10), 720 * 10)
   ## L1/L2 nesting is exact 6x6 because it's a resolution ratio, not a
   ## tile-size ratio picked separately
   expect_equal(tile_size(60) / tile_size(10), 6)
   ## the whole S2-friendly resolution ladder nests exactly: every step's
-  ## ratio must divide 600 (so a coarse pixel always covers an exact
+  ## ratio must divide 720 (so a coarse pixel always covers an exact
   ## block of fine pixels)
   ladder <- c(10, 20, 60, 120, 360)
   for (i in seq_len(length(ladder) - 1)) {
     f <- ladder[i + 1] / ladder[i]
     expect_equal(f, round(f))
-    expect_equal(600 %% f, 0)
+    expect_equal(720 %% f, 0)
   }
   ## every tile edge lies on the absolute 10 m lattice (Sentinel-2 native)
   zones <- define_utm_zones()
@@ -127,9 +127,9 @@ heard_anchors <- data.frame(
            "mcdonald", "coast_bbox_ne_islet"),
   lon  = c(73.3868, 73.5167, 73.7189, 72.5773, 73.58),
   lat  = c(-53.0243, -53.1000, -53.1141, -53.0380, -52.91414),
-  ## expected L1/60m (col, row) under origin 140000/20000, tile 36000
-  col  = c(6L, 7L, 7L, 5L, 7L),
-  row  = c(113L, 113L, 113L, 113L, 114L)
+  ## expected L1/60m (col, row) under origin 140000/20000, tile 43200
+  col  = c(5L, 6L, 6L, 4L, 6L),
+  row  = c(94L, 94L, 94L, 94L, 95L)
 )
 
 test_that("Heard anchors land in the documented L1 (60m) tiles", {
@@ -150,22 +150,26 @@ test_that("the HIMI coastline bbox is contained by the 3x2 L1 (60m) block", {
     zone = "43S"
   )
   idx <- utm_to_tile_index(corners$x, corners$y, 60)
-  expect_true(all(idx$col >= 5L & idx$col <= 7L))
-  expect_true(all(idx$row >= 113L & idx$row <= 114L))
+  expect_true(all(idx$col >= 4L & idx$col <= 6L))
+  expect_true(all(idx$row >= 94L & idx$row <= 95L))
 })
 
-test_that("Atlas Cove sits at a four-corner point (seam regression)", {
-  ## The station-adjacent site is ~200 m from BOTH an L1 column seam
-  ## (E 392000) and an L1 row seam (N 4124000). This is a documented
-  ## property of the grid, not a bug: sites read windows, never tiles.
-  ## If the origin ever changes, this test forces the change to be
-  ## deliberate.
+test_that("Atlas Cove hugs the L1 row seam (seam regression)", {
+  ## On the 720px lattice (tile 43200 m) the station-adjacent site is
+  ## ~191 m south of the L1 row seam at N 4124000 (a seam both the old
+  ## 36000 m and new 43200 m lattices share), while the nearest column
+  ## seam is now ~7.4 km away -- the 600px-era four-corner coincidence
+  ## is gone. This is a documented property of the grid, not a bug:
+  ## sites read windows, never tiles. If the origin or tile size ever
+  ## changes, this test forces the change to be deliberate.
+  ts <- tile_size(60)
   xy <- lonlat_to_utm(73.3868, -53.0243, zone = "43S")
   ## explicit seam distances against the known lattice
-  col_seam <- 140000 + ceiling((xy$x - 140000) / 36000) * 36000
-  row_seam <- 20000 + ceiling((xy$y - 20000) / 36000) * 36000
-  expect_lt(abs(col_seam - xy$x), 500)   # ~198 m
-  expect_lt(abs(row_seam - xy$y), 500)   # ~191 m
+  col_seam <- 140000 + ceiling((xy$x - 140000) / ts) * ts
+  row_seam <- 20000 + ceiling((xy$y - 20000) / ts) * ts
+  expect_identical(row_seam, 4124000)
+  expect_lt(abs(row_seam - xy$y), 500)    # ~191 m
+  expect_gt(abs(col_seam - xy$x), 5000)   # ~7398 m: not four-corner
 })
 
 test_that("generate_tiles_for_bbox is a working legacy alias", {
@@ -183,7 +187,7 @@ test_that("generate_tiles_for_extent covers the Heard bbox", {
   heard_bbox <- c(72.57784, 73.70948, -53.19276, -52.91414)
   hl1 <- generate_tiles_for_extent(heard_bbox, 60, define_utm_zones())
   ids <- make_tile_id(hl1$zone_id, 60, hl1$col, hl1$row)
-  need <- with(expand.grid(col = 5:7, row = 113:114),
+  need <- with(expand.grid(col = 4:6, row = 94:95),
                make_tile_id("43S", 60, col, row))
   expect_true(all(need %in% ids))
 })

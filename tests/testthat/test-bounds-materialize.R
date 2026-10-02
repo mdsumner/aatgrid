@@ -18,11 +18,11 @@ test_that("tile_range edges land on the origin lattice", {
 })
 
 test_that("a seam-exact edge does not drag in the empty neighbour", {
-  ## xmax exactly on the col-8 seam (E 428000): col 8 must NOT appear
-  tr <- tile_range(c(400000, 428000, 4100000, 4123000), 60)
+  ## xmax exactly on the col-8 seam (E 485600): col 8 must NOT appear
+  tr <- tile_range(c(400000, 485600, 4100000, 4123000), 60)
   expect_identical(tr$col[2], 7)
   ## reprojection fuzz just below the seam resolves to the seam
-  trf <- tile_range(c(400000, 427999.9999997, 4100000, 4123000), 60)
+  trf <- tile_range(c(400000, 485599.9999997, 4100000, 4123000), 60)
   expect_identical(trf$col[2], 7)
 })
 
@@ -46,12 +46,12 @@ test_that("project_extent beats corner-only transformation", {
 test_that("tiles_for_extent2 covers the Heard scheme with the exact bbox", {
   bb <- c(72.57784, 73.70948, -53.19276, -52.91414)
   hl1 <- tiles_for_extent2(bb, 60)          # centroid zone -> 43S
-  need <- make_tile_id("43S", 60, rep(5:7, 2), rep(113:114, each = 3))
+  need <- make_tile_id("43S", 60, rep(4:6, 2), rep(94:95, each = 3))
   expect_true(all(need %in% hl1$tile_id))
   ## the islet's L2 tile is present at 10 m (this fails under any
   ## corner-only bounds scheme)
   hl2 <- tiles_for_extent2(bb, 10)
-  expect_true(make_tile_id("43S", 10, 44, 686) %in% hl2$tile_id)
+  expect_true(make_tile_id("43S", 10, 36, 571) %in% hl2$tile_id)
 })
 
 test_that("tiles_for_extent2 geometry is wk rct with the zone crs", {
