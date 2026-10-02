@@ -1,3 +1,48 @@
+# Data sources
+
+External data used to build aatgrid fixtures. Large files are not in git;
+they are mirrored as GitHub release assets and fetched by scripts in
+`data-raw/`. Each entry records where the file came from, exactly which
+bytes we hold, and how to get them again.
+
+## SCAR Antarctic Digital Database: high resolution coastline polygons
+
+| Field            | Value |
+|------------------|-------|
+| Dataset          | High resolution vector polygons of the Antarctic coastline |
+| Version          | 7.10 |
+| Publisher        | British Antarctic Survey, for SCAR (Antarctic Digital Database) |
+| Landing page     | https://data.bas.ac.uk/items/4ecd795d-e038-412f-b430-251b33fc880e/ |
+| DOI              | FILL: copy from the landing page citation |
+| Citation         | FILL: copy the landing page citation verbatim |
+| Licence          | CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/) |
+| Published        | 2024-11-12 (per landing page) |
+| Accessed         | 2026-09-29, downloaded by hand (the catalogue uses keyed download URLs) |
+| Original file    | FILL: file name exactly as downloaded |
+| Format           | GeoPackage |
+| CRS              | EPSG:3031 |
+| Coverage         | Land and ice shelves south of 60S. Does not include Heard/McDonald or Macquarie. |
+| Size (bytes)     | FILL |
+| sha256           | FILL |
+| md5              | FILL (verified by `data-raw/fetch_add.R`, base R only) |
+| Mirror tag       | `add-v7.10` |
+| Mirror URL       | https://github.com/mdsumner/aatgrid/releases/download/add-v7.10/FILL_FILENAME |
+
+Contents (from `ogrinfo -so`, recorded at mirror time):
+
+```
+FILL: paste layer name(s), feature count, geometry type, field list
+```
+
+Notes:
+
+- The mirror is byte-identical to the download. We do not modify, reproject
+  or rename the file. Derived products (arcs, ranks, tile classification)
+  are built from it and carry `source = "ADD"`, `source_version = "7.10"`.
+- Attribution required by CC BY 4.0: any product derived from this file
+  cites the dataset above and states that changes were made.
+
+
 sha256sum add_coastline_high_res_polygon_v7_10.gpkg
 cebee398d4df4a8646946c8c881a1807a141ab0caedf604897fea0424dd72f67  add_coastline_high_res_polygon_v7_10.gpkg
 md5sum add_coastline_high_res_polygon_v7_10.gpkg
