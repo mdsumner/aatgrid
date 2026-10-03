@@ -2,19 +2,32 @@
 % Please edit documentation in R/bounds_materialize.R
 \name{extent_boundary}
 \alias{extent_boundary}
-\title{Densified boundary points of a lonlat extent}
+\title{Densified boundary points of an extent}
 \usage{
 extent_boundary(extent_lonlat, n = 21)
 }
 \arguments{
-\item{extent_lonlat}{c(xmin, xmax, ymin, ymax), degrees}
+\item{extent_lonlat}{c(xmin, xmax, ymin, ymax); degrees in the usual
+case, but any units are fine}
 
-\item{n}{Points per edge (default 21, matching proj_trans_bounds)}
+\item{n}{Points per edge (default 21, matching PROJ's
+\code{proj_trans_bounds})}
 }
 \value{
-two-column matrix of lon, lat boundary vertices
+two-column numeric matrix of x, y boundary vertices, \code{4 * n}
+rows
 }
 \description{
-Densified boundary points of a lonlat extent
+Walks the four edges of an extent (south, east, north, west, in that
+order, i.e. anticlockwise from the south-west corner) with \code{n} points
+per edge, returning a closed ring of \code{4 * n} vertices (each corner
+appears twice, once as the end of one edge and once as the start of
+the next). This is the densification step behind
+\code{\link[=project_extent]{project_extent()}}: transforming only an extent's four corners misses
+the true extreme of a curved edge, so the edges themselves must be
+sampled. Works for any planar extent, not just lonlat.
 }
-\keyword{internal}
+\examples{
+b <- extent_boundary(c(72.5, 74, -53.5, -52.5), n = 5)
+dim(b)   # 20 x 2
+}

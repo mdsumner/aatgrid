@@ -4,16 +4,18 @@
 \alias{get_tile_extents_from_df}
 \title{Get tile extents for identified tiles}
 \usage{
-get_tile_extents_from_df(tile_df, zones)
+get_tile_extents_from_df(tile_df, zones = NULL)
 }
 \arguments{
-\item{tile_df}{data.frame from fast_identify_tiles}
+\item{tile_df}{data.frame from fast_identify_tiles (tile_id, res, col, row)}
 
-\item{zones}{UTM zone definitions}
+\item{zones}{UTM zone definitions (unused; kept for a stable signature)}
 }
 \value{
 data.frame with tile_id and extent columns (xmin, xmax, ymin, ymax)
 }
 \description{
-Get tile extents for identified tiles
+Vectorised over the rows of \code{tile_df}; the extents depend only on
+(col, row, res) since the origin is shared by every zone, so \code{zones}
+is accepted for interface symmetry but not consulted.
 }

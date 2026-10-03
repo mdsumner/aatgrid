@@ -14,12 +14,12 @@ This system provides a standardized grid framework covering terrestrial regions 
 
 ## Key Features
 
-- **Two-level hierarchy**: Coarse (36km) and fine (6km) grids with perfect 6×6 nesting
+- **Two-level hierarchy**: Coarse (43.2 km at 60 m) and fine (7.2 km at 10 m) grids with perfect 6x6 nesting (720 px tiles)
 - **Sentinel-2 aligned**: Compatible with existing satellite imagery workflows
 - **Simple tile IDs**: Format `{zone}_{level}_{col}_{row}` (e.g., `43S_L1_0006_0114`)
 - **UTM-based**: Standard projections with minimal distortion
 - **Human-viewable**: All tiles render as 600×600 pixel images
-- **Multi-zone support**: Covers 17 UTM zones (42S-58S)
+- **Multi-zone support**: generative table for every southern UTM zone (AAT spans 42S-58S)
 
 ## Quick Start
 
@@ -70,7 +70,7 @@ sudo apt-get install libgdal-dev libproj-dev
 ### Clone Repository
 
 ```bash
-git clone https://github.com/YOUR-USERNAME/aat-grid-system.git
+git clone https://github.com/mdsumner/aatgrid.git
 cd aat-grid-system
 ```
 
@@ -250,7 +250,7 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 ## Contact
 
 For questions or collaboration opportunities:
-- **Issues**: [GitHub Issues](https://github.com/YOUR-USERNAME/aat-grid-system/issues)
+- **Issues**: [GitHub Issues](https://github.com/mdsumner/aatgrid/issues)
 
 ---
 

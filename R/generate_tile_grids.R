@@ -30,7 +30,7 @@ generate_tiles_for_extent <- function(extent_lonlat, res, zones) {
 
   all_tiles <- list()
 
-  for (i in 1:nrow(relevant_zones)) {
+  for (i in seq_len(nrow(relevant_zones))) {
     zone <- relevant_zones[i, ]
 
     # Convert extent to this UTM zone
@@ -45,7 +45,9 @@ generate_tiles_for_extent <- function(extent_lonlat, res, zones) {
       crs = "EPSG:4326"
     )
 
-    extent_utm <- project(extent_vect, zone$epsg)
+    # densify (interval in metres for lonlat input) before projecting so
+    # the curved UTM edges are bounded (the corner trap; see project_extent())
+    extent_utm <- project(terra::densify(extent_vect, interval = 1000), zone$epsg)
     extent_utm_ext <- ext(extent_utm)
 
     # extent is c(xmin, xmax, ymin, ymax); grid origin is shared by
@@ -87,9 +89,8 @@ generate_tiles_for_extent <- function(extent_lonlat, res, zones) {
 #'
 #' Pre-rename name for [generate_tiles_for_extent()] (renamed when the
 #' package switched from sf-style bbox ordering to terra's extent
-#' ordering); kept as an alias because `generate_tiles_for_feature()`
-#' still calls it under this name. Use [generate_tiles_for_extent()] in
-#' new code.
+#' ordering); kept as an alias so old scripts keep working. Use
+#' [generate_tiles_for_extent()] in new code.
 #'
 #' @inheritParams generate_tiles_for_extent
 #' @return SpatVector with all tiles covering the bounding box
@@ -109,13 +110,13 @@ generate_tiles_for_bbox <- function(extent_lonlat, res, zones) {
 #' @importFrom terra values values<- res<-
 generate_tiles_for_feature <- function(feature_vect, res, zones, buffer_m = 0) {
 
-  # Get bbox in lon/lat
+  # Lonlat extent of the feature, in terra ordering c(xmin, xmax, ymin, ymax).
+  # (Regression: this was once assembled in sf bbox order, which sent a
+  # latitude into the zone-number arithmetic and found no zones.)
   feature_lonlat <- project(feature_vect, "EPSG:4326")
-  bbox <- ext(feature_lonlat)
+  extent_lonlat <- as.vector(ext(feature_lonlat))[c("xmin", "xmax", "ymin", "ymax")]
 
-  # Generate tiles covering bbox
-  bbox_vec <- c(xmin = bbox[1], ymin = bbox[3], xmax = bbox[2], ymax = bbox[4])
-  candidate_tiles <- generate_tiles_for_bbox(bbox_vec, res, zones)
+  candidate_tiles <- generate_tiles_for_extent(unname(extent_lonlat), res, zones)
 
   if (is.null(candidate_tiles)) {
     return(NULL)
@@ -150,7 +151,8 @@ generate_tiles_for_feature <- function(feature_vect, res, zones, buffer_m = 0) {
 
   # Combine results
   if (length(intersecting_tiles) > 0) {
-    result <- do.call(rbind, intersecting_tiles)
+    ## unname: terra's rbind would take a list name as an argument name
+    result <- do.call(rbind, unname(intersecting_tiles))
   } else {
     result <- NULL
   }
@@ -181,13 +183,13 @@ get_aat_regions <- function() {
     ),
 
     # Main Antarctic continent (AAT sector)
-    # 44°E to 160°E, focusing on 70°S to 60°S for UTM applicability
+    # 44E to 160E, focusing on 70S to 60S for UTM applicability
     aat_mainland = c(
       xmin = 44, xmax = 160,
       ymin = -70, ymax = -60
     ),
 
-    # Extended region (includes all of concern up to 50°S)
+    # Extended region (includes all of concern up to 50S)
     aat_extended = c(
       xmin = 44, xmax = 160,
       ymin = -70, ymax = -50
@@ -214,25 +216,9 @@ generate_tile_hierarchy <- function(feature_vect, zones) {
     return(list(L1 = NULL, L2 = NULL))
   }
 
-  # For each L1 tile, generate its child L2 tiles (defaults: 60 -> 10 m)
-  l1_values <- values(l1_tiles)
-  l2_tiles_list <- lapply(1:nrow(l1_values), function(i) {
-    children <- get_child_tiles(l1_values$col[i], l1_values$row[i])
-
-    # Create L2 tile polygons
-    tiles <- lapply(1:nrow(children), function(j) {
-      create_tile_polygon(l1_values$zone_id[i], 10,
-                         children$col[j],
-                         children$row[j],
-                         zones)
-    })
-
-    do.call(rbind, tiles)
-  })
-
-  l2_tiles <- do.call(rbind, l2_tiles_list)
-
-  # Filter L2 tiles to those that intersect feature
+  # L2 (10 m) tiles that intersect the feature. Every one of these is a
+  # child of some L1 tile above by construction (exact 6x6 nesting), so
+  # there is no need to enumerate children and then filter.
   l2_tiles <- generate_tiles_for_feature(feature_vect, 10, zones)
 
   list(

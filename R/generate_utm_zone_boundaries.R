@@ -1,68 +1,49 @@
-library(terra)
-
 #' Generate UTM zone boundary lines
 #'
-#' @param zone_numbers Vector of UTM zone numbers (default: 42:58 for AAT)
+#' One meridian line per zone, at that zone's western edge
+#' (`-180 + (zone_number - 1) * 6`), as a SpatVector in `EPSG:4326`.
+#' Useful as map context when showing which zone a region falls in.
+#'
+#' @param zone_numbers Vector of UTM zone numbers (default: every zone
+#'   in [define_utm_zones()])
 #' @param lat_range Vector c(min_lat, max_lat) in degrees (default: c(-85, -40))
-#' @param n_points Number of points along each line (default: 100)
-#' @return SpatVector of lines in EPSG:4326
+#' @param n_points Number of vertices along each line (default: 100)
+#' @return SpatVector of lines in EPSG:4326 with attributes zone_west,
+#'   zone_east, longitude, label
+#' @export
+#' @examples
+#' b <- generate_utm_zone_boundaries(42:58, lat_range = c(-70, -50))
+#' terra::values(b)
 generate_utm_zone_boundaries <- function(zone_numbers,
                                          lat_range = c(-85, -40),
                                          n_points = 100) {
 
   if (missing(zone_numbers)) {
     zone_numbers <- define_utm_zones()$zone_number
-
   }
-  # Calculate longitude boundaries for each zone
+  if (any(zone_numbers < 1 | zone_numbers > 60)) {
+    stop("zone_numbers must lie in 1:60")
+  }
+  if (n_points < 2) stop("n_points must be at least 2")
+
   # UTM zone boundaries are at -180 + (zone_number - 1) * 6
   longitudes <- -180 + (zone_numbers - 1) * 6
 
-  # Create latitude sequence
   lats <- seq(lat_range[1], lat_range[2], length.out = n_points)
 
-  # Create lines for each boundary
   lines_list <- lapply(longitudes, function(lon) {
-    # Create matrix of coordinates (lon, lat pairs)
     coords <- cbind(rep(lon, n_points), lats)
-
-    # Create line geometry
-    vect(coords, type = "lines", crs = "EPSG:4326")
+    terra::vect(coords, type = "lines", crs = "EPSG:4326")
   })
 
-  # Combine all lines into single SpatVector
   boundaries <- do.call(rbind, lines_list)
 
-  # Add attributes
-  values(boundaries) <- data.frame(
+  terra::values(boundaries) <- data.frame(
     zone_west = zone_numbers,
-    zone_east = zone_numbers + 1,
+    zone_east = ifelse(zone_numbers == 60, 1, zone_numbers + 1),
     longitude = longitudes,
-    label = paste0(zone_numbers, "/", zone_numbers + 1)
+    label = paste0(zone_numbers, "/", ifelse(zone_numbers == 60, 1, zone_numbers + 1))
   )
 
-  return(boundaries)
-}
-
-# Example usage:
-if (FALSE) {
-  # Generate boundaries for AAT zones
-  zone_lines <- generate_utm_zone_boundaries()
-
-  # View the result
-  print(zone_lines)
-  print(values(zone_lines))
-
-  # Save to file
-  writeVector(zone_lines, "utm_zone_boundaries.gpkg", overwrite = TRUE)
-
-  # Plot (simple)
-  plot(zone_lines)
-
-  # Generate for specific zones with custom lat range
-  antarctic_lines <- generate_utm_zone_boundaries(
-    zone_numbers = 42:58,
-    lat_range = c(-70, -50),
-    n_points = 200
-  )
+  boundaries
 }

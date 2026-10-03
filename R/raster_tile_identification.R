@@ -25,16 +25,20 @@ create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
 
   ts <- tile_size(res)
 
-  # Define extent for the zone if not specified
+  # Define extent for the zone if not specified. The lattice starts at
+  # the origin (no negative tile indices), and a UTM zone's eastings
+  # never fall below ~166 km, so the west edge is the origin itself.
+  # Northings: ~1.0e6 to ~4.2e6 m covers roughly 81S to 52S.
   if (is.null(zone_extent)) {
-    # Create extent covering typical Antarctic latitudes
-    # Adjust these based on your needs
     zone_extent <- c(
-      xmin = zone_info$origin_x - 500000,  # 500 km west of origin
-      xmax = zone_info$origin_x + 1500000, # 1500 km east of origin
-      ymin = zone_info$origin_y + 1000000, # Southern latitudes
-      ymax = zone_info$origin_y + 4200000  # Northern latitudes
+      zone_info$origin_x,             # xmin: the lattice origin
+      zone_info$origin_x + 700000,    # xmax: beyond any zone's east edge
+      zone_info$origin_y + 1000000,   # ymin: deep Antarctic
+      zone_info$origin_y + 4200000    # ymax: subantarctic islands
     )
+  }
+  if (length(zone_extent) != 4L) {
+    stop("zone_extent must be c(xmin, xmax, ymin, ymax)")
   }
 
   # Align extent to tile boundaries
@@ -48,6 +52,11 @@ create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
   ymax_snap <- zone_info$origin_y +
     ceiling((zone_extent[4] - zone_info$origin_y) / ts) * ts
 
+  if (xmin_snap < zone_info$origin_x || ymin_snap < zone_info$origin_y) {
+    stop("zone_extent lies below the grid origin (negative tile index); ",
+         "the lattice starts at GRID_ORIGIN")
+  }
+
   # Create extent (terra ordering: xmin, xmax, ymin, ymax)
   zone_ext <- ext(xmin_snap, xmax_snap, ymin_snap, ymax_snap)
 
@@ -55,17 +64,11 @@ create_zone_raster <- function(zone_id, res, zones, zone_extent = NULL) {
   ncols <- round((xmax_snap - xmin_snap) / ts)
   nrows <- round((ymax_snap - ymin_snap) / ts)
 
-  # Create raster
+  # Create raster: a pure specification (extent + dimension + crs), no
+  # values allocated -- rasterize() against it needs none
   r <- terra::rast(zone_ext, nrows = nrows, ncols = ncols, crs = zone_info$epsg)
 
-  # Set resolution explicitly to ensure exact tile size
-  terra::res(r) <- c(ts, ts)
-
-  # Add metadata
-  names(r) <- paste0(zone_id, "_", res, "_grid")
-
-  # Initialize with NA (no tiles identified yet)
-  values(r) <- NA
+  names(r) <- paste0(zone_id, "_R", sprintf("%04d", resolve_res(res)), "_grid")
 
   return(r)
 }
@@ -97,14 +100,30 @@ create_all_zone_rasters <- function(res, zones, zone_ids = NULL) {
 
 #' Rasterize features to identify intersecting tiles
 #'
+#' Features in a geographic (lonlat) CRS are densified before projection
+#' (lines and polygons only): a straight lonlat edge becomes a curve in
+#' UTM, and projecting only its vertices replaces that curve with a
+#' chord that can fall short of a tile seam. This is the polygon form of
+#' the corner trap handled by [project_extent()] for extents.
+#'
 #' @param features SpatVector of features to rasterize
 #' @param zone_raster SpatRaster template for the zone (each cell = one tile)
 #' @param buffer_m Optional buffer distance in meters
+#' @param densify_m Vertex spacing in metres (terra::densify's unit for
+#'   lonlat input) used to densify lonlat lines/polygons before
+#'   projecting; NULL disables. 1 km bounds the chord error to well
+#'   under a 10 m tile's size at these latitudes
 #' @return SpatRaster with 1 where tiles intersect features, 0 elsewhere
 #' @export
-identify_intersecting_tiles <- function(features, zone_raster, buffer_m = 0) {
+#' @importFrom terra is.lonlat densify geomtype
+identify_intersecting_tiles <- function(features, zone_raster, buffer_m = 0,
+                                        densify_m = 1000) {
   # Project features to raster CRS if needed
   if (!is.null(crs(features)) && crs(features) != crs(zone_raster)) {
+    if (!is.null(densify_m) && isTRUE(terra::is.lonlat(features)) &&
+        terra::geomtype(features) %in% c("lines", "polygons")) {
+      features <- terra::densify(features, interval = densify_m)
+    }
     features <- project(features, crs(zone_raster))
   }
 
@@ -125,20 +144,26 @@ identify_intersecting_tiles <- function(features, zone_raster, buffer_m = 0) {
 
 #' Get tile indices from raster cell indices
 #'
+#' A zone raster (see [create_zone_raster()]) is a window onto the tile
+#' lattice: its cells are tiles, but its first column need not be tile
+#' column 0, and terra numbers rows from the top (north) down while tile
+#' rows count up from the origin (south). So raster row/col numbers are
+#' never tile indices; the tile index is recovered from each cell's
+#' centre coordinate against [GRID_ORIGIN], which is exact because the
+#' raster is tile-aligned.
+#'
 #' @param zone_raster SpatRaster with tiles as cells
-#' @param cell_indices Vector of cell indices
-#' @return data.frame with cell, col, row indices
+#' @param cell_indices Vector of cell indices (1-based, terra order)
+#' @return data.frame with cell, col, row (0-based tile indices)
+#' @export
+#' @importFrom terra xyFromCell
 cells_to_tile_indices <- function(zone_raster, cell_indices) {
-  # Get row/col from cell indices (terra is 1-based)
-  rc <- rowColFromCell(zone_raster, cell_indices)
-
-  # Convert to 0-based tile indices
-  # Terra rows go from top to bottom, need to invert for our grid
-  # Adjust based on grid origin convention
+  ts <- terra::res(zone_raster)[1]
+  xy <- terra::xyFromCell(zone_raster, cell_indices)
   data.frame(
     cell = cell_indices,
-    col = rc[, 2] - 1,  # 0-based column
-    row = rc[, 1] - 1   # 0-based row
+    col = as.integer(floor((xy[, 1] - GRID_ORIGIN[["x"]]) / ts)),
+    row = as.integer(floor((xy[, 2] - GRID_ORIGIN[["y"]]) / ts))
   )
 }
 
@@ -154,10 +179,14 @@ cells_to_tile_indices <- function(zone_raster, cell_indices) {
 #' @export
 fast_identify_tiles <- function(features, zone_id, res, zones,
                                 zone_raster = NULL, buffer_m = 0) {
+  res <- resolve_res(res)
 
   # Create zone raster if not provided
   if (is.null(zone_raster)) {
     zone_raster <- create_zone_raster(zone_id, res, zones)
+  } else if (!isTRUE(all.equal(terra::res(zone_raster)[1], tile_size(res)))) {
+    stop("zone_raster cell size (", terra::res(zone_raster)[1],
+         ") does not match tile_size(res) = ", tile_size(res))
   }
 
   # Identify intersecting cells
@@ -167,13 +196,7 @@ fast_identify_tiles <- function(features, zone_id, res, zones,
   cell_idx <- which(values(intersect_rast) == 1)
 
   if (length(cell_idx) == 0) {
-    return(data.frame(
-      tile_id = character(0),
-      zone_id = character(0),
-      res = character(0),
-      col = integer(0),
-      row = integer(0)
-    ))
+    return(empty_tile_df())
   }
 
   # Convert to tile indices
@@ -222,13 +245,7 @@ fast_identify_tiles_multizone <- function(features, zone_ids, res, zones,
   relevant_zone_ids <- intersect(relevant_zone_ids, zone_ids)
 
   if (length(relevant_zone_ids) == 0) {
-    return(data.frame(
-      tile_id = character(0),
-      zone_id = character(0),
-      res = character(0),
-      col = integer(0),
-      row = integer(0)
-    ))
+    return(empty_tile_df())
   }
 
   # Process each zone
@@ -269,30 +286,46 @@ create_tile_templates_from_df <- function(tile_df, zones) {
 
 #' Get tile extents for identified tiles
 #'
-#' @param tile_df data.frame from fast_identify_tiles
-#' @param zones UTM zone definitions
+#' Vectorised over the rows of `tile_df`; the extents depend only on
+#' (col, row, res) since the origin is shared by every zone, so `zones`
+#' is accepted for interface symmetry but not consulted.
+#'
+#' @param tile_df data.frame from fast_identify_tiles (tile_id, res, col, row)
+#' @param zones UTM zone definitions (unused; kept for a stable signature)
 #' @return data.frame with tile_id and extent columns (xmin, xmax, ymin, ymax)
 #' @export
-get_tile_extents_from_df <- function(tile_df, zones) {
+get_tile_extents_from_df <- function(tile_df, zones = NULL) {
+  if (nrow(tile_df) == 0) {
+    return(data.frame(tile_id = character(0), xmin = numeric(0),
+                      xmax = numeric(0), ymin = numeric(0),
+                      ymax = numeric(0), stringsAsFactors = FALSE))
+  }
+  res <- resolve_res(tile_df$res)
+  if (length(unique(res)) != 1L) {
+    stop("tile_df mixes resolutions; split by res first")
+  }
+  tile_ext <- tile_index_to_extent(tile_df$col, tile_df$row, res[1])
+  data.frame(
+    tile_id = tile_df$tile_id,
+    xmin = tile_ext$xmin,
+    xmax = tile_ext$xmax,
+    ymin = tile_ext$ymin,
+    ymax = tile_ext$ymax,
+    stringsAsFactors = FALSE
+  )
+}
 
-  extents <- lapply(1:nrow(tile_df), function(i) {
-    zone_info <- zones[zones$zone_id == tile_df$zone_id[i], ]
-    tile_ext <- tile_index_to_extent(
-      tile_df$col[i],
-      tile_df$row[i],
-      tile_df$res[i]
-    )
-
-    data.frame(
-      tile_id = tile_df$tile_id[i],
-      xmin = tile_ext[1],
-      xmax = tile_ext[2],
-      ymin = tile_ext[3],
-      ymax = tile_ext[4]
-    )
-  })
-
-  do.call(rbind, extents)
+#' Empty tile data.frame with the canonical columns
+#' @keywords internal
+empty_tile_df <- function() {
+  data.frame(
+    tile_id = character(0),
+    zone_id = character(0),
+    res = numeric(0),
+    col = integer(0),
+    row = integer(0),
+    stringsAsFactors = FALSE
+  )
 }
 
 # ==============================================================================

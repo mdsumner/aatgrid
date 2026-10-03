@@ -19,7 +19,6 @@ SpatVector with all tiles covering the bounding box
 \description{
 Pre-rename name for \code{\link[=generate_tiles_for_extent]{generate_tiles_for_extent()}} (renamed when the
 package switched from sf-style bbox ordering to terra's extent
-ordering); kept as an alias because \code{generate_tiles_for_feature()}
-still calls it under this name. Use \code{\link[=generate_tiles_for_extent]{generate_tiles_for_extent()}} in
-new code.
+ordering); kept as an alias so old scripts keep working. Use
+\code{\link[=generate_tiles_for_extent]{generate_tiles_for_extent()}} in new code.
 }

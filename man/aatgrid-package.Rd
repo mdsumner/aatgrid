@@ -12,7 +12,7 @@ parametric: an origin, a fixed 720-pixel tile, and a resolution, so
 tile size is always derived (see \link{GRID_SPEC}). "L1" (60 m) and "L2"
 (10 m) are named instances of this, kept as convenience aliases.
 \itemize{
-\item UTM projections (zones 42S-58S)
+\item UTM projections (every southern zone; AAT spans 42S-58S)
 \item Sentinel-2 grid alignment
 \item Fast raster-based tile identification
 }
@@ -20,7 +20,8 @@ tile size is always derived (see \link{GRID_SPEC}). "L1" (60 m) and "L2"
 \details{
 A hierarchical geospatial tiling system for the Australian Antarctic
 Territory (AAT). Provides standardized grid frameworks at multiple
-resolutions (36km and 6km tiles) aligned with Sentinel-2 grid origins.
+resolutions (43.2 km tiles at 60 m, 7.2 km tiles at 10 m) aligned
+with the Sentinel-2 lattice.
 }
 \section{Main functions}{
 
@@ -35,8 +36,8 @@ resolutions (36km and 6km tiles) aligned with Sentinel-2 grid origins.
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/mdsumner/aat-grid-system}
-  \item Report bugs at \url{https://github.com/mdsumner/aat-grid-system/issues}
+  \item \url{https://github.com/mdsumner/aatgrid}
+  \item Report bugs at \url{https://github.com/mdsumner/aatgrid/issues}
 }
 
 }

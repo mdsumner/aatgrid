@@ -11,15 +11,23 @@ generate_utm_zone_boundaries(
 )
 }
 \arguments{
-\item{zone_numbers}{Vector of UTM zone numbers (default: 42:58 for AAT)}
+\item{zone_numbers}{Vector of UTM zone numbers (default: every zone
+in \code{\link[=define_utm_zones]{define_utm_zones()}})}
 
 \item{lat_range}{Vector c(min_lat, max_lat) in degrees (default: c(-85, -40))}
 
-\item{n_points}{Number of points along each line (default: 100)}
+\item{n_points}{Number of vertices along each line (default: 100)}
 }
 \value{
-SpatVector of lines in EPSG:4326
+SpatVector of lines in EPSG:4326 with attributes zone_west,
+zone_east, longitude, label
 }
 \description{
-Generate UTM zone boundary lines
+One meridian line per zone, at that zone's western edge
+(\code{-180 + (zone_number - 1) * 6}), as a SpatVector in \code{EPSG:4326}.
+Useful as map context when showing which zone a region falls in.
+}
+\examples{
+b <- generate_utm_zone_boundaries(42:58, lat_range = c(-70, -50))
+terra::values(b)
 }

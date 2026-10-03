@@ -1,7 +1,7 @@
 Package: aatgrid
 Type: Package
 Title: Antarctic Territory Grid System
-Version: 0.3.0
+Version: 0.3.1
 Authors@R: person("Michael", "Sumner", email = "mdsumner@gmail.com",
                   role = c("aut", "cre", "cph"))
 Description: A hierarchical geospatial tiling system for the Australian Antarctic 
@@ -10,7 +10,6 @@ Description: A hierarchical geospatial tiling system for the Australian Antarcti
     raster-based tile identification for efficient spatial indexing.
 License: MIT + file LICENSE
 Encoding: UTF-8
-LazyData: true
 Depends:
     R (>= 4.0)
 Imports:
@@ -27,8 +26,8 @@ Suggests:
     geographiclib,
     PROJ
 Roxygen: list(markdown = TRUE)
-URL: https://github.com/mdsumner/aat-grid-system
-BugReports: https://github.com/mdsumner/aat-grid-system/issues
+URL: https://github.com/mdsumner/aatgrid
+BugReports: https://github.com/mdsumner/aatgrid/issues
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.0
 Remotes: hypertidy/sds, hypertidy/PROJ

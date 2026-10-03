@@ -2,7 +2,8 @@
 #'
 #' A hierarchical geospatial tiling system for the Australian Antarctic
 #' Territory (AAT). Provides standardized grid frameworks at multiple
-#' resolutions (36km and 6km tiles) aligned with Sentinel-2 grid origins.
+#' resolutions (43.2 km tiles at 60 m, 7.2 km tiles at 10 m) aligned
+#' with the Sentinel-2 lattice.
 #'
 #' @description
 #' The aatgrid package provides tools for working with a standardized grid
@@ -11,7 +12,7 @@
 #' tile size is always derived (see [GRID_SPEC]). "L1" (60 m) and "L2"
 #' (10 m) are named instances of this, kept as convenience aliases.
 #' \itemize{
-#'   \item UTM projections (zones 42S-58S)
+#'   \item UTM projections (every southern zone; AAT spans 42S-58S)
 #'   \item Sentinel-2 grid alignment
 #'   \item Fast raster-based tile identification
 #' }

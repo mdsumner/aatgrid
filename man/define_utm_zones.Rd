@@ -2,26 +2,28 @@
 % Please edit documentation in R/antarctic_grid_system.R
 \name{define_utm_zones}
 \alias{define_utm_zones}
-\title{Define UTM zones covering Australian Antarctic Territory}
+\title{Define UTM zones for the grid}
 \usage{
 define_utm_zones()
 }
 \value{
 data.frame with columns:
 \itemize{
-\item zone_number: UTM zone number (42-58)
+\item zone_number: UTM zone number (1-60)
 \item hemisphere: Hemisphere code ("S")
 \item epsg: EPSG code as string (e.g., "EPSG:32743")
-\item origin_x: Grid origin easting (Sentinel-2 standard: 166021)
-\item origin_y: Grid origin northing (0)
+\item origin_x: Grid origin easting (GRID_ORIGIN, 140000)
+\item origin_y: Grid origin northing (GRID_ORIGIN, 20000)
 \item central_meridian: Central meridian longitude for the zone
-\item zone_id: Zone identifier (e.g., "43S")
+\item zone_id: Zone identifier, zero-padded (e.g., "43S", "01S")
 }
 }
 \description{
-Creates a data frame with specifications for UTM zones 42S through 58S,
-covering the longitude range of the Australian Antarctic Territory.
-Each zone includes grid origin coordinates aligned with Sentinel-2.
+Creates a data frame with specifications for every southern UTM zone
+(01S through 60S). The Australian Antarctic Territory sector spans
+zones 42S to 58S, but the table is generative for the whole
+hemisphere so that the same scheme applies anywhere. The grid origin
+is identical in every zone (see \link{GRID_ORIGIN}).
 }
 \examples{
 zones <- define_utm_zones()

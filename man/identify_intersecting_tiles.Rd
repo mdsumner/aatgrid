@@ -4,7 +4,12 @@
 \alias{identify_intersecting_tiles}
 \title{Rasterize features to identify intersecting tiles}
 \usage{
-identify_intersecting_tiles(features, zone_raster, buffer_m = 0)
+identify_intersecting_tiles(
+  features,
+  zone_raster,
+  buffer_m = 0,
+  densify_m = 1000
+)
 }
 \arguments{
 \item{features}{SpatVector of features to rasterize}
@@ -12,10 +17,19 @@ identify_intersecting_tiles(features, zone_raster, buffer_m = 0)
 \item{zone_raster}{SpatRaster template for the zone (each cell = one tile)}
 
 \item{buffer_m}{Optional buffer distance in meters}
+
+\item{densify_m}{Vertex spacing in metres (terra::densify's unit for
+lonlat input) used to densify lonlat lines/polygons before
+projecting; NULL disables. 1 km bounds the chord error to well
+under a 10 m tile's size at these latitudes}
 }
 \value{
 SpatRaster with 1 where tiles intersect features, 0 elsewhere
 }
 \description{
-Rasterize features to identify intersecting tiles
+Features in a geographic (lonlat) CRS are densified before projection
+(lines and polygons only): a straight lonlat edge becomes a curve in
+UTM, and projecting only its vertices replaces that curve with a
+chord that can fall short of a tile seam. This is the polygon form of
+the corner trap handled by \code{\link[=project_extent]{project_extent()}} for extents.
 }

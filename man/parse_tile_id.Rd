@@ -7,10 +7,11 @@
 parse_tile_id(tile_id)
 }
 \arguments{
-\item{tile_id}{Tile identifier string}
+\item{tile_id}{Tile identifier string(s)}
 }
 \value{
-list with zone_id, res (numeric, metres), col, row
+list with zone_id, res (integer, metres), col, row,
+zone_number, hemisphere; each element has \code{length(tile_id)} entries
 }
 \description{
 Accepts both the current resolution-encoded form
@@ -18,4 +19,13 @@ Accepts both the current resolution-encoded form
 (\code{"55S_L1_0123_0456"}), so nothing already written becomes an
 orphan; legacy names are mapped to their resolution via
 \link{LEVEL_RESOLUTIONS}.
+}
+\details{
+Vectorised: \code{tile_id} may be a character vector, in which case every
+element of the result is a vector of the same length. Resolution is
+always returned as integer metres (the id encodes whole metres).
+}
+\examples{
+parse_tile_id("43S_R0060_0006_0113")
+parse_tile_id(c("43S_R0060_0006_0113", "55S_L2_0001_0002"))$res
 }

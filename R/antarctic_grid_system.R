@@ -1,16 +1,10 @@
 # Antarctic Territory Grid System
 # Based on UTM zones with Sentinel-2 grid alignment
-# Coverage: Australian Antarctic Territory (44°E to 160°E, terrestrial focus)
+# Coverage: Australian Antarctic Territory (44E to 160E, terrestrial focus)
 # Built with terra package
 
 #' @importFrom terra vect ext project crs values rast res crds
 NULL
-
-# Global grid specification - internal to package
-.onLoad <- function(libname, pkgname) {
-  # Grid specifications are loaded into package environment
-  invisible()
-}
 
 # ==============================================================================
 # RESOLUTION HELPERS
@@ -66,21 +60,45 @@ check_recyclable_lengths <- function(...) {
   invisible(TRUE)
 }
 
-#' Define UTM zones covering Australian Antarctic Territory
+#' Zone identifier for a longitude
 #'
-#' Creates a data frame with specifications for UTM zones 42S through 58S,
-#' covering the longitude range of the Australian Antarctic Territory.
-#' Each zone includes grid origin coordinates aligned with Sentinel-2.
+#' Standard UTM zone arithmetic (`floor((lon + 180) / 6) + 1`, zone 60
+#' at exactly 180E), padded to the two-digit form used by
+#' [define_utm_zones()] (`"01S"`, not `"1S"`). Southern hemisphere only,
+#' matching the zone table; the special Norway/Svalbard zone exceptions
+#' are northern and do not apply.
+#'
+#' @param lon Longitude(s), degrees east, from -180 to 180
+#' @return character zone id(s), e.g. `"43S"`
+#' @export
+#' @examples
+#' lon_to_zone_id(c(73.5, 158.9, -177, 180))
+lon_to_zone_id <- function(lon) {
+  if (any(lon < -180 | lon > 180, na.rm = TRUE)) {
+    stop("lon must lie in [-180, 180]")
+  }
+  zn <- floor((lon + 180) / 6) + 1
+  zn[zn > 60] <- 60
+  sprintf("%02dS", as.integer(zn))
+}
+
+#' Define UTM zones for the grid
+#'
+#' Creates a data frame with specifications for every southern UTM zone
+#' (01S through 60S). The Australian Antarctic Territory sector spans
+#' zones 42S to 58S, but the table is generative for the whole
+#' hemisphere so that the same scheme applies anywhere. The grid origin
+#' is identical in every zone (see [GRID_ORIGIN]).
 #'
 #' @return data.frame with columns:
 #'   \itemize{
-#'     \item zone_number: UTM zone number (42-58)
+#'     \item zone_number: UTM zone number (1-60)
 #'     \item hemisphere: Hemisphere code ("S")
 #'     \item epsg: EPSG code as string (e.g., "EPSG:32743")
-#'     \item origin_x: Grid origin easting (Sentinel-2 standard: 166021)
-#'     \item origin_y: Grid origin northing (0)
+#'     \item origin_x: Grid origin easting (GRID_ORIGIN, 140000)
+#'     \item origin_y: Grid origin northing (GRID_ORIGIN, 20000)
 #'     \item central_meridian: Central meridian longitude for the zone
-#'     \item zone_id: Zone identifier (e.g., "43S")
+#'     \item zone_id: Zone identifier, zero-padded (e.g., "43S", "01S")
 #'   }
 #' @export
 #' @examples
@@ -163,15 +181,16 @@ tile_index_to_extent <- function(col, row, res) {
 make_tile_id <- function(zone_id, res, col, row) {
   check_recyclable_lengths(zone_id, col, row)
   res <- resolve_res(res)
-  for (i in seq_along(zone_id)) {
-    if (nchar(zone_id[i]) == 2) {
-      nc <- paste0("0", zone_id[i])
-      zone_id[i] <- nc
-    }
-  }
+  zone_id <- pad_zone_id(zone_id)
   paste0(zone_id, "_R", sprintf("%04d", res), "_",
          sprintf("%04d", col), "_",
          sprintf("%04d", row))
+}
+
+#' Zero-pad a zone identifier ("1S" -> "01S"); vectorised
+#' @keywords internal
+pad_zone_id <- function(zone_id) {
+  ifelse(nchar(zone_id) == 2L, paste0("0", zone_id), zone_id)
 }
 
 #' Parse tile ID string
@@ -182,29 +201,53 @@ make_tile_id <- function(zone_id, res, col, row) {
 #' orphan; legacy names are mapped to their resolution via
 #' [LEVEL_RESOLUTIONS].
 #'
-#' @param tile_id Tile identifier string
-#' @return list with zone_id, res (numeric, metres), col, row
+#' Vectorised: `tile_id` may be a character vector, in which case every
+#' element of the result is a vector of the same length. Resolution is
+#' always returned as integer metres (the id encodes whole metres).
+#'
+#' @param tile_id Tile identifier string(s)
+#' @return list with zone_id, res (integer, metres), col, row,
+#'   zone_number, hemisphere; each element has `length(tile_id)` entries
 #' @export
+#' @examples
+#' parse_tile_id("43S_R0060_0006_0113")
+#' parse_tile_id(c("43S_R0060_0006_0113", "55S_L2_0001_0002"))$res
 parse_tile_id <- function(tile_id) {
-  parts <- strsplit(tile_id, "_")[[1]]
-  tag <- parts[2]
-  res <- if (grepl("^R[0-9]+$", tag)) {
-    as.integer(sub("^R", "", tag))
-  } else if (tag %in% names(LEVEL_RESOLUTIONS)) {
-    unname(LEVEL_RESOLUTIONS[[tag]])
-  } else {
-    stop("unrecognized tile id resolution/level tag: ", tag)
+  if (!is.character(tile_id)) stop("tile_id must be character")
+  parts <- strsplit(tile_id, "_", fixed = TRUE)
+  bad <- vapply(parts, length, integer(1)) != 4L
+  if (any(bad)) {
+    stop("malformed tile id (expected ZONE_TAG_COL_ROW): ",
+         paste(tile_id[bad], collapse = ", "))
   }
-  if (nchar(parts[1]) == 2) {
-    parts[1] <- paste0("0", parts[1])
+  m <- do.call(rbind, parts)
+  zone_id <- pad_zone_id(m[, 1])
+  tag <- m[, 2]
+
+  is_r <- grepl("^R[0-9]+$", tag)
+  is_level <- tag %in% names(LEVEL_RESOLUTIONS)
+  if (any(!is_r & !is_level)) {
+    stop("unrecognized tile id resolution/level tag: ",
+         paste(unique(tag[!is_r & !is_level]), collapse = ", "))
   }
+  res <- integer(length(tag))
+  res[is_r] <- as.integer(sub("^R", "", tag[is_r]))
+  res[is_level] <- as.integer(LEVEL_RESOLUTIONS[tag[is_level]])
+
+  col <- suppressWarnings(as.integer(m[, 3]))
+  row <- suppressWarnings(as.integer(m[, 4]))
+  if (anyNA(col) || anyNA(row)) {
+    stop("malformed tile id: non-integer col/row in ",
+         paste(tile_id[is.na(col) | is.na(row)], collapse = ", "))
+  }
+
   list(
-    zone_id = parts[1],
+    zone_id = zone_id,
     res = res,
-    col = as.integer(parts[3]),
-    row = as.integer(parts[4]),
-    zone_number = as.integer(gsub("[[:alpha:]]", "", parts[1])),
-    hemisphere = gsub("[[:digit:]]", "", parts[1])
+    col = col,
+    row = row,
+    zone_number = as.integer(gsub("[[:alpha:]]", "", zone_id)),
+    hemisphere = gsub("[[:digit:]]", "", zone_id)
   )
 }
 
@@ -382,7 +425,7 @@ if (FALSE) {
   print(zones)
 
   # Example: Create a tile at a specific location
-  # Heard Island is approximately at 73°E, 53°S
+  # Heard Island is approximately at 73E, 53S
   # This falls in UTM zone 43S
 
   # Example tile polygon

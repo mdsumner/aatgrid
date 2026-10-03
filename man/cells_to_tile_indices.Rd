@@ -9,11 +9,17 @@ cells_to_tile_indices(zone_raster, cell_indices)
 \arguments{
 \item{zone_raster}{SpatRaster with tiles as cells}
 
-\item{cell_indices}{Vector of cell indices}
+\item{cell_indices}{Vector of cell indices (1-based, terra order)}
 }
 \value{
-data.frame with cell, col, row indices
+data.frame with cell, col, row (0-based tile indices)
 }
 \description{
-Get tile indices from raster cell indices
+A zone raster (see \code{\link[=create_zone_raster]{create_zone_raster()}}) is a window onto the tile
+lattice: its cells are tiles, but its first column need not be tile
+column 0, and terra numbers rows from the top (north) down while tile
+rows count up from the origin (south). So raster row/col numbers are
+never tile indices; the tile index is recovered from each cell's
+centre coordinate against \link{GRID_ORIGIN}, which is exact because the
+raster is tile-aligned.
 }

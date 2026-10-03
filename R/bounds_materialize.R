@@ -59,13 +59,37 @@ tile_range <- function(extent, res, tol = 1e-3) {
 # DENSIFIED BOUNDS (the anti-corner-trap)
 # ==============================================================================
 
-#' Densified boundary points of a lonlat extent
+#' Densified boundary points of an extent
 #'
-#' @param extent_lonlat c(xmin, xmax, ymin, ymax), degrees
-#' @param n Points per edge (default 21, matching proj_trans_bounds)
-#' @return two-column matrix of lon, lat boundary vertices
-#' @keywords internal
+#' Walks the four edges of an extent (south, east, north, west, in that
+#' order, i.e. anticlockwise from the south-west corner) with `n` points
+#' per edge, returning a closed ring of `4 * n` vertices (each corner
+#' appears twice, once as the end of one edge and once as the start of
+#' the next). This is the densification step behind
+#' [project_extent()]: transforming only an extent's four corners misses
+#' the true extreme of a curved edge, so the edges themselves must be
+#' sampled. Works for any planar extent, not just lonlat.
+#'
+#' @param extent_lonlat c(xmin, xmax, ymin, ymax); degrees in the usual
+#'   case, but any units are fine
+#' @param n Points per edge (default 21, matching PROJ's
+#'   `proj_trans_bounds`)
+#' @return two-column numeric matrix of x, y boundary vertices, `4 * n`
+#'   rows
+#' @export
+#' @examples
+#' b <- extent_boundary(c(72.5, 74, -53.5, -52.5), n = 5)
+#' dim(b)   # 20 x 2
 extent_boundary <- function(extent_lonlat, n = 21) {
+  if (length(extent_lonlat) != 4L || anyNA(extent_lonlat)) {
+    stop("extent must be c(xmin, xmax, ymin, ymax) with no NA")
+  }
+  if (extent_lonlat[1] > extent_lonlat[2] ||
+      extent_lonlat[3] > extent_lonlat[4]) {
+    stop("extent must satisfy xmin <= xmax and ymin <= ymax ",
+         "(ordering is xmin, xmax, ymin, ymax)")
+  }
+  if (n < 2) stop("n must be at least 2 (the edge endpoints)")
   xs <- seq(extent_lonlat[1], extent_lonlat[2], length.out = n)
   ys <- seq(extent_lonlat[3], extent_lonlat[4], length.out = n)
   rbind(
@@ -124,8 +148,7 @@ tiles_for_extent2 <- function(extent_lonlat, res, zone = NULL,
   res <- resolve_res(res)
 
   if (is.null(zone)) {
-    zone_number <- floor((mean(extent_lonlat[1:2]) + 180) / 6) + 1
-    zone <- paste0(zone_number, "S")
+    zone <- lon_to_zone_id(mean(extent_lonlat[1:2]))
   }
   zi <- zones[zones$zone_id == zone, ]
   if (nrow(zi) != 1) {
